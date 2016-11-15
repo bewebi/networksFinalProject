@@ -42,7 +42,7 @@ struct playerInfo {
 	float FG_PCT;
 	float CFID;
 	char CFPARAMS[50];
-	bool drafted;
+	char owner[50];
 }__attribute__((packed, aligned(1)));
 
 vector<playerInfo> readCSV(string filename);

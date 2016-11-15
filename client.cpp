@@ -27,6 +27,7 @@
 #define CANNOT_DELIVER 8
 #define PLAYER_REQUEST 9
 #define PLAYER_RESPONSE 10
+#define DRAFT_REQUEST 11
 
 struct header {
     short type;
@@ -110,23 +111,23 @@ int main(int argc, char *argv[]) {
     sendHello();
 
     while(1) {
-	char ch = '\0'; int i = 0; int message = -1;
-	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message, or 2 to quit\n");
-	while(read(0,&ch,1) > 0) {
-	    if(ch == 10) {
-		break;
-	    } else {
-		message = ch - 48;
-	    } 
-	}
-	if(message == 0) {
-	    sendMessage();
-	} else if (message == 1) {
-	    readMessage();
-	} else if (message == 2) {
-	    sendExit();
-        break;
-	}
+    	char ch = '\0'; int i = 0; int message = -1;
+    	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message, or 2 to quit\n");
+    	while(read(0,&ch,1) > 0) {
+	       if(ch == 10) {
+	           break;
+    	    } else {
+        	   	message = ch - 48;
+	        } 
+    	}
+    	if(message == 0) {
+	       sendMessage();
+	    } else if (message == 1) {  
+    	    readMessage();
+    	} else if (message == 2) {
+    	    sendExit();
+            break;
+    	}
     }
     fprintf(stdout, "Quitting! Have a nice day\n");
     close(sockfd);
@@ -140,15 +141,21 @@ void sendMessage() {
     char buffer[1028]; char intBuffer[sizeof(int)];
     memset(&headerToSend, 0, sizeof(headerToSend));
     memset(buffer,0,sizeof(buffer));
-    fprintf(stdout, "What to send now?\n3 = LIST_REQUEST, 5 = CHAT, 6 = EXIT, 9 = PLAYER_REQUEST \n");
+    fprintf(stdout, "What to send now?\n3 = LIST_REQUEST, 5 = CHAT, 6 = EXIT, 9 = PLAYER_REQUEST, 11 = DRAFT_REQUEST \n");
     while(read(0,&ch,1) > 0){
-	if(ch == 10) break;
-	buffer[i] = (ch - 48);
-	i++;
+    	if(ch == 10) break;
+	    buffer[i] = (ch - 48);
+    	i++;
     }
-    memcpy(&headerToSend.type,buffer, sizeof(short));
+    short type = 0;
+    for(int j = 0; j <= i; j++) {
+        type += (buffer[i-j-1] * pow(10,j));
+    }
+
+    headerToSend.type = type;
+    //memcpy(&headerToSend.type,type, sizeof(short));
     fprintf(stdout, "You selected type %hu\n",headerToSend.type);
-    if(headerToSend.type != 3 && headerToSend.type != 5 && headerToSend.type != 6 && headerToSend.type != 9) {
+    if(headerToSend.type != 3 && headerToSend.type != 5 && headerToSend.type != 6 && headerToSend.type != 9 && headerToSend.type != 11) {
         fprintf(stdout, "This is not a valid type; aborting message send\n");
         return;
     }
@@ -196,10 +203,16 @@ void sendMessage() {
         buffer[i] = '\0';
         i++;
         if(i > 1) fprintf(stdout, "Your message of size %d is as follows: %s\n\n",i,buffer);
-    } /* else if(headerToSend.type == HELLO) {
-        strcpy(buffer,pword);
-        i = strlen(buffer) + 1;
-    } */
+    } else if(headerToSend.type == DRAFT_REQUEST) {
+        fprintf(stdout, "Which player would you like to draft?\n");
+        while(read(0,&ch,1) > 0) {
+            if(ch == 10) break;
+            buffer[i] = ch;
+            i++;
+        }
+        buffer[i] = '\0';
+        i++;
+    }
     
     headerToSend.type = htons(headerToSend.type);
     headerToSend.length = htonl(i);
@@ -208,25 +221,27 @@ void sendMessage() {
     int sent = 0;
     int bytes;
     do {
-	bytes = write(sockfd,(char *)&headerToSend+sent,total-sent);
-	if(bytes < 0) error("ERROR writing message to socket");
-	if(bytes == 0) break;
-	sent+=bytes;
-	//fprintf(stdout,"Sent %d bytes of the header\n",sent);
-	sleep(sleepTime);
+    	bytes = write(sockfd,(char *)&headerToSend+sent,total-sent);
+    	if(bytes < 0) error("ERROR writing message to socket");
+    	if(bytes == 0) break;
+    	sent+=bytes;
+	   //fprintf(stdout,"Sent %d bytes of the header\n",sent);
     } while (sent < total);
 
     if(i > 1) {
-	total = i;
-	sent = 0;
-	while(sent < total) {
-	    bytes = write(sockfd, buffer+sent, total-sent);
-	    if(bytes < 0) error("ERROR writing message to socket");
-	    if(bytes == 0) break;
-	    sent+= bytes;
-	    //fprintf(stdout,"Sent %d bytes of the message body\n");
-	    sleep(sleepTime);
-	}
+    	total = i;
+    	sent = 0;
+	   while(sent < total) {
+	        bytes = write(sockfd, buffer+sent, total-sent);
+    	    if(bytes < 0) error("ERROR writing message to socket");
+	        if(bytes == 0) break;
+    	    sent+= bytes;
+	        //fprintf(stdout,"Sent %d bytes of the message body\n")
+    	}
+    }
+
+    if(type == DRAFT_REQUEST || type == LIST_REQUEST || type == PLAYER_REQUEST) {
+        readMessage();
     }
 }
 

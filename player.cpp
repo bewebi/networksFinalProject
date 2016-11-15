@@ -79,7 +79,7 @@ vector<playerInfo> readCSV(string filename) {
 			ss >> temp; newPlayer.FG_PCT = stof(temp,0);
 			ss >> temp; newPlayer.CFID = stoi(temp,0);
 			ss >> newPlayer.CFPARAMS;
-			newPlayer.drafted = false;
+			strcpy(newPlayer.owner, "Server");
 
 			//cout << "set all player attributes \n";
 			playerData.push_back(newPlayer);
@@ -103,6 +103,7 @@ string playerToString(playerInfo player) {
 	s += ", Offensive rating: "; s += ss.str(); ss.str(string());
 	ss << fixed << setprecision(1) << player.DEF_RATING;
 	s += ", Defensive rating "; s += ss.str();
+	s += ", Owner: ";  s+= player.owner;
 
 	return s;
 }
@@ -142,11 +143,7 @@ string vectorToAugmentedCSV(vector<playerInfo> playerData) {
 		s += to_string(playerData[i].FG_PCT); s += ',';
 		s += to_string(playerData[i].CFID); s += ',';
 		s += playerData[i].CFPARAMS; s += ',';
-		if(playerData[i].drafted) {
-			s += "true";
-		} else {
-			s += "false";
-		}
+		s += playerData[i].owner;
 		s += '\n';
 	}
 
@@ -209,12 +206,8 @@ vector<playerInfo> readAugmentedCSV(string augCSV) {
 			ss >> temp; newPlayer.FG_PCT = stof(temp,0);
 			ss >> temp; newPlayer.CFID = stoi(temp,0);
 			ss >> newPlayer.CFPARAMS;
-			ss >> temp;
-			if (temp.compare("false") == 0) {
-				newPlayer.drafted = false;
-			} else {
-				newPlayer.drafted = true;
-			}
+			ss >> newPlayer.owner;
+			
 
 			//cout << "set all player attributes \n";
 			playerData.push_back(newPlayer);

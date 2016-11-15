@@ -39,6 +39,7 @@ using namespace std;
 #define CANNOT_DELIVER 8
 #define PLAYER_REQUEST 9
 #define PLAYER_RESPONSE 10
+#define DRAFT_REQUEST 11
 
 struct header {
     unsigned short type;
@@ -52,6 +53,7 @@ struct clientInfo {
     int sock;
     char ID[IDLENGTH];
     bool active;
+    int mode;
 
     int headerToRead;
     char partialHeader[HEADERSIZE];
@@ -93,6 +95,7 @@ void handleClientPresent(struct clientInfo *curClient, char *ID);
 void handleCannotDeliver(struct clientInfo *curClient);
 void handleError(struct clientInfo *curClient);
 void handlePlayerRequest(struct clientInfo *curClient);
+void handleDraftRequest(struct clientInfo *curClient);
 
 string playerToString(playerInfo player); 
 
@@ -100,10 +103,11 @@ fd_set active_fd_set, read_fd_set; // Declared here so all functions can use
 
 int main(int argc, char *argv[])
 {
+	// TODO: Give more options than this hard coded file
 	playerData = readCSV("nba1516.csv");
-	for(int i = 0; i < playerData.size(); i++) {
+	//for(int i = 0; i < playerData.size(); i++) {
 		//cout << playerToString(playerData[i]) << '\n';
-	}
+	//}
 
     memset(&clients, 0, sizeof(clients));
     int sockfd, newsockfd, portno, pid, i;
@@ -114,72 +118,75 @@ int main(int argc, char *argv[])
     struct sockaddr_in serv_addr, cli_addr;
    
     if (argc < 2) {
-	fprintf(stderr,"ERROR, no port provided\n");
-	exit(1);
+		fprintf(stderr,"ERROR, no port provided\n");
+		exit(1);
     }
-     sockfd = socket(AF_INET, SOCK_STREAM, 0); 
-     if (sockfd < 0)  
-        error("ERROR opening socket"); 
-     bzero((char *) &serv_addr, sizeof(serv_addr)); 
-     portno = atoi(argv[1]); // Get port number from args
-     serv_addr.sin_family = AF_INET; 
-     serv_addr.sin_addr.s_addr = INADDR_ANY; 
-     serv_addr.sin_port = htons(portno); 
-     if (bind(sockfd, (struct sockaddr *) &serv_addr, 
-              sizeof(serv_addr)) < 0)  
-              error("ERROR on binding"); 
-     listen(sockfd,5);
-     FD_ZERO(&active_fd_set);
-     FD_SET(sockfd, &active_fd_set);
+    sockfd = socket(AF_INET, SOCK_STREAM, 0); 
+    if (sockfd < 0)  
+       error("ERROR opening socket"); 
+    
+    bzero((char *) &serv_addr, sizeof(serv_addr)); 
+	portno = atoi(argv[1]); // Get port number from args
+	serv_addr.sin_family = AF_INET; 
+	serv_addr.sin_addr.s_addr = INADDR_ANY; 
+	serv_addr.sin_port = htons(portno); 
+    
+    if (bind(sockfd, (struct sockaddr *) &serv_addr, 
+        sizeof(serv_addr)) < 0)  
+            error("ERROR on binding"); 
+
+    listen(sockfd,5);
+    FD_ZERO(&active_fd_set);
+    FD_SET(sockfd, &active_fd_set);
  
-     clilen = sizeof(cli_addr); 
-     while(1) { 
-	 read_fd_set = active_fd_set;
-	 /* Block until input arrives on one or more active sockets */
-	 if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL) < 0) {
-	     error("ERROR on select");
-	 }
+    clilen = sizeof(cli_addr); 
+    while(1) { 
+		read_fd_set = active_fd_set;
+		/* Block until input arrives on one or more active sockets */
+		if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL) < 0) {
+		    error("ERROR on select");
+		}
 
-	 /* Service all the sockets with input pending */
-	 for(i = 0; i < FD_SETSIZE; i++) { //FD_SETSIZE == 1024
-	     if(FD_ISSET(i, &read_fd_set)) {
-		 if(i == sockfd) {
-		     /* Connection request on original socket */
-		     newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-		     if(newsockfd < 0)
-			 error("ERROR on accept");
+		/* Service all the sockets with input pending */
+		for(i = 0; i < FD_SETSIZE; i++) { //FD_SETSIZE == 1024
+	    	if(FD_ISSET(i, &read_fd_set)) {
+				if(i == sockfd) {
+			    	/* Connection request on original socket */
+				    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+			    	if(newsockfd < 0)
+						error("ERROR on accept");
 
-		     /* make and insert new clientInfo record */
-		     struct clientInfo newClient;
-		     memset(&newClient, 0, sizeof(newClient));
-		     newClient.sock = newsockfd;
-		     newClient.headerToRead = HEADERSIZE;
-		     newClient.active = true;
-		     newClient.validated = false;
-		     int inserted = 0;
-		     while(inserted == 0) {
-				 if(clients[clientCounter].sock == NULL) {
-				     clients[clientCounter] = newClient;
-				     inserted = 1;
-				 }
-				 clientCounter++;
-				 clientCounter = clientCounter % MAXCLIENTS;
-		     }
-		     fprintf(stderr, "New connection with newsockfd: %d\n", newsockfd);
+		    		/* make and insert new clientInfo record */
+		    		struct clientInfo newClient;
+			    	memset(&newClient, 0, sizeof(newClient));
+			    	newClient.sock = newsockfd;
+			    	newClient.headerToRead = HEADERSIZE;
+		    		newClient.active = true;
+			    	newClient.validated = false;
+				    int inserted = 0;
+				    while(inserted == 0) {
+						if(clients[clientCounter].sock == NULL) {
+					    	clients[clientCounter] = newClient;
+					    	inserted = 1;
+						}
+					 	clientCounter++;
+						clientCounter = clientCounter % MAXCLIENTS;
+				    }
+		    		fprintf(stderr, "New connection with newsockfd: %d\n", newsockfd);
 
-		     // fprintf(stderr, "Server: connect from host %s, port %hu. \n", inet_ntoa(cli_addr.sin_addr), ntohs(cli_addr.sin_port));
+		    		// fprintf(stderr, "Server: connect from host %s, port %hu. \n", inet_ntoa(cli_addr.sin_addr), ntohs(cli_addr.sin_port));
 
-		     FD_SET(newsockfd, &active_fd_set);
-		 } else {
-		     /* Data arriving on an already-connected socket */
-		     readFromClient(i);
-		 }
-	     }
-	 }
-     }
-     close(sockfd); 
-     return 0; 
- }  
+			    	FD_SET(newsockfd, &active_fd_set);
+		 		} else {
+			    /* Data arriving on an already-connected socket */
+			    	readFromClient(i);
+				}
+	    	}
+		}
+    }
+    close(sockfd); 
+    return 0; 
+}  
 
 
 void readFromClient (int sockfd) {
@@ -238,165 +245,171 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
     fprintf(stderr, "readHeader client: %s, nbytes: %d, expected readsize: %d\n",curClient->ID, nbytes,curClient->headerToRead); 
 
     if (nbytes <= 0) {
-	/* Read error or EOF: Socket closed */
+		/* Read error or EOF: Socket closed */
     	// TODO: Pause mode
-	handleExit(curClient);
+		handleExit(curClient);
     } else if (nbytes < curClient->headerToRead) {
-	/* still more to read */
-	curClient->headerToRead = curClient->headerToRead - nbytes;
-	memcpy(curClient->partialHeader, header_buffer, HEADERSIZE);
+		/* still more to read */
+		curClient->headerToRead = curClient->headerToRead - nbytes;
+		memcpy(curClient->partialHeader, header_buffer, HEADERSIZE);
     } else {
         /* Parse header. */
-	struct header newHeader;
-	memcpy((char *)&newHeader, &header_buffer[0], HEADERSIZE);
+		struct header newHeader;
+		memcpy((char *)&newHeader, &header_buffer[0], HEADERSIZE);
 	
-	newHeader.type = ntohs(newHeader.type);
-	newHeader.dataLength = ntohl(newHeader.dataLength);
-	newHeader.msgID = ntohl(newHeader.msgID);
-	curClient->headerToRead = HEADERSIZE;
+		newHeader.type = ntohs(newHeader.type);
+		newHeader.dataLength = ntohl(newHeader.dataLength);
+		newHeader.msgID = ntohl(newHeader.msgID);
+		curClient->headerToRead = HEADERSIZE;
 
-	//fprintf (stderr, "complete header: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", newHeader.type, newHeader.sourceID, newHeader.destID, newHeader.dataLength, newHeader.msgID);
+		//fprintf (stderr, "complete header: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", newHeader.type, newHeader.sourceID, newHeader.destID, newHeader.dataLength, newHeader.msgID);
 
-	/* identify potential bad input */
-	if((strcmp(newHeader.sourceID,curClient->ID) != 0) && (strcmp(curClient->ID,"") != 0) && curClient->active) {
-	    fprintf(stderr, "ERROR: wrong user ID in header\n");
-	    handleError(curClient);
-	    return;
-	}
-	if(strlen(newHeader.sourceID) >= IDLENGTH) {
-	    fprintf(stderr, "ERROR: sourceID is too long\n");
-	    handleError(curClient);
-	    return;
-	}
-	if(strlen(newHeader.destID) >= IDLENGTH) {
-	    fprintf(stderr, "ERROR: destID is too long\n");
-	    handleError(curClient);
-	    return;
-	}
-	if(newHeader.dataLength > MAXDATASIZE) {
-	    fprintf(stderr, "ERROR: dataLength too large\n");
-	    handleError(curClient);
-	    return;
-	}
+		/* identify potential bad input */
+		if((strcmp(newHeader.sourceID,curClient->ID) != 0) && (strcmp(curClient->ID,"") != 0) && curClient->active) {
+	    	fprintf(stderr, "ERROR: wrong user ID in header\n");
+		    handleError(curClient);
+		    return;
+		}
+		if(strlen(newHeader.sourceID) >= IDLENGTH) {
+	    	fprintf(stderr, "ERROR: sourceID is too long\n");
+		    handleError(curClient);
+		    return;
+		}
+		if(strlen(newHeader.destID) >= IDLENGTH) {
+		    fprintf(stderr, "ERROR: destID is too long\n");
+		    handleError(curClient);
+	    	return;
+		}
+		if(newHeader.dataLength > MAXDATASIZE) {
+	    	fprintf(stderr, "ERROR: dataLength too large\n");
+		    handleError(curClient);
+		    return;
+		}
 
-	/* next step depends on header type */
-	if(newHeader.type == HELLO) {
-		//char pword[IDLENGTH];
-		//memset(pword,0,IDLENGTH);
+		/* next step depends on header type */
+		if(newHeader.type == HELLO) {
+			//char pword[IDLENGTH];
+			//memset(pword,0,IDLENGTH);
 
-	    if(newHeader.dataLength > 20) {
-			fprintf(stderr, "ERROR: HELLO has dataLength > 20 \n");
-			handleError(curClient);
-			return;
-	    }
-
-
-	    /* handle HELLO-specific bad input */
-	    if(strcmp(curClient->ID,"") != 0) {
-	    	// If there is already and ID, this is not this client's first interaction with the server
-	    	fprintf(stderr, "ERROR: Attempt to HELLO from previously seen client\n");
-	    	handleError(curClient);
-	    } 
-	    
-	    if(newHeader.msgID !=0) {
-			fprintf(stderr, "ERROR: HELLO has msgID != 0 \n");
-			handleError(curClient);
-			return;
-	    }
-	    if(strcmp(newHeader.destID, "Server") != 0) {
-			fprintf(stderr, "ERROR: HELLO not addressed to Server\n");
-			handleError(curClient);
-			return;
-	    }
-	    if(strcmp(newHeader.sourceID, "Server") == 0) {
-			fprintf(stderr, "ERROR: 'Server' is not a valid ID\n");
-			handleError(curClient);
-			return;
-	    }
-
-	    // readPword(curClient, newHeader.sourceID);
-	    /* look for CLIENT_ALREADY_PRESENT error */
-	    int i; int duplicate = 0;
-	    for(i = 0; i < MAXCLIENTS; i++) {
-			if(strcmp(clients[i].ID, newHeader.sourceID) == 0) {
-				if(clients[i].active) {
-					// Can't sign in as active user
-					memcpy(curClient->ID, newHeader.sourceID, IDLENGTH);			
-					handleClientPresent(curClient, newHeader.sourceID);
-					return;
-				}
-				// Could be client returning
-				duplicate = 1;
+		    if(newHeader.dataLength > 20) {
+				fprintf(stderr, "ERROR: HELLO has dataLength > 20 \n");
+				handleError(curClient);
+				return;
 		    }
-		}
-		
-		if(duplicate == 0) {
-		   	// There is no chance of collision with existing user
-		   	curClient->validated = true;
-		} else {
-			// Need to check for correct password
-			curClient->validated = false;
-		}
 
-	    curClient->totalPwordExpected = newHeader.dataLength;
-	    curClient->pwordToRead = newHeader.dataLength;
-	    memcpy(curClient->ID, newHeader.sourceID, IDLENGTH);
 
-	} else if(newHeader.type == LIST_REQUEST) {
-	    /* handle LIST_REQUEST-specific bad input */
-	    if(strcmp(curClient->ID,"") == 0) {
-		fprintf(stderr,"ERROR: LIST_REQUEST from client without ID\n");
-		handleError(curClient);
-		return;
-	    }
-	    if(newHeader.dataLength != 0) {
-		fprintf(stderr, "ERROR: LIST_REQUEST has dataLength != 0\n");
-		handleError(curClient);
-		return;
-	    }
-	    if(newHeader.msgID != 0) {
-		fprintf(stderr, "ERROR: LIST_REQUEST has msgID != 0\n");
-		handleError(curClient);
-		return;
-	    }
-	    if(strcmp(newHeader.destID, "Server") != 0) {
-		fprintf(stderr, "ERROR: LIST_REQEUST not addressed to Server\n");
-		handleError(curClient);
-		return;
-	    }
-	    handleListRequest(curClient);
-	} else if(newHeader.type == CHAT) {
-	    /* handle CHAT-specific bad input (not related to CANNOT_DELIVER) */
-	    if(newHeader.msgID == 0) {
-		fprintf(stderr,"ERROR: CHAT has msgID == 0\n");
-		handleError(curClient);
-		return;
-	    }
-	    if(strcmp(curClient->ID,"") == 0) {
-		fprintf(stderr,"ERROR: CHAT from client without ID\n");
-		handleError(curClient);
-		return;
-	    }
+		    /* handle HELLO-specific bad input */
+	    	if(strcmp(curClient->ID,"") != 0) {
+		    	// If there is already and ID, this is not this client's first interaction with the server
+		    	fprintf(stderr, "ERROR: Attempt to HELLO from previously seen client\n");
+	    		handleError(curClient);
+		    } 
 	    
-	    /* store information about CHAT in clientInfo struct */
-	    curClient->msgID = newHeader.msgID;
-	    memcpy(curClient->destID, newHeader.destID, 20);
+		    if(newHeader.msgID !=0) {
+				fprintf(stderr, "ERROR: HELLO has msgID != 0 \n");
+				handleError(curClient);
+				return;
+		    }
+	    	if(strcmp(newHeader.destID, "Server") != 0) {
+				fprintf(stderr, "ERROR: HELLO not addressed to Server\n");
+				handleError(curClient);
+				return;
+		    }
+		    if(strcmp(newHeader.sourceID, "Server") == 0) {
+				fprintf(stderr, "ERROR: 'Server' is not a valid ID\n");
+				handleError(curClient);
+				return;
+		    }
 
-	    curClient->dataToRead = newHeader.dataLength;
-	    curClient->totalDataExpected = newHeader.dataLength;
-	} else if(newHeader.type == EXIT) {
-	    /* No need to check for errors, 
+	    	// readPword(curClient, newHeader.sourceID);
+		    /* look for CLIENT_ALREADY_PRESENT error */
+		    int i; int duplicate = 0;
+	    	for(i = 0; i < MAXCLIENTS; i++) {
+				if(strcmp(clients[i].ID, newHeader.sourceID) == 0) {
+					if(clients[i].active) {
+						// Can't sign in as active user
+						memcpy(curClient->ID, newHeader.sourceID, IDLENGTH);			
+						handleClientPresent(curClient, newHeader.sourceID);
+						return;
+					}
+					// Could be client returning
+					duplicate = 1;
+		    	}
+			}
+		
+			if(duplicate == 0) {
+		   		// There is no chance of collision with existing user
+			   	curClient->validated = true;
+			} else {
+				// Need to check for correct password
+				curClient->validated = false;
+			}
+
+		    curClient->totalPwordExpected = newHeader.dataLength;
+		    curClient->pwordToRead = newHeader.dataLength;
+		    memcpy(curClient->ID, newHeader.sourceID, IDLENGTH);
+
+		} else if(newHeader.type == LIST_REQUEST) {
+		    /* handle LIST_REQUEST-specific bad input */
+	    	if(strcmp(curClient->ID,"") == 0) {
+				fprintf(stderr,"ERROR: LIST_REQUEST from client without ID\n");
+				handleError(curClient);
+				return;
+		    }
+	    	if(newHeader.dataLength != 0) {
+				fprintf(stderr, "ERROR: LIST_REQUEST has dataLength != 0\n");
+				handleError(curClient);
+				return;
+	    	}
+		    if(newHeader.msgID != 0) {
+				fprintf(stderr, "ERROR: LIST_REQUEST has msgID != 0\n");
+				handleError(curClient);
+				return;
+	    	}
+		    if(strcmp(newHeader.destID, "Server") != 0) {
+				fprintf(stderr, "ERROR: LIST_REQEUST not addressed to Server\n");
+				handleError(curClient);
+				return;
+		    }
+		    handleListRequest(curClient);
+		} else if(newHeader.type == CHAT) {
+		    /* handle CHAT-specific bad input (not related to CANNOT_DELIVER) */
+	    	if(newHeader.msgID == 0) {
+				fprintf(stderr,"ERROR: CHAT has msgID == 0\n");
+				handleError(curClient);
+				return;
+	    	}
+		    if(strcmp(curClient->ID,"") == 0) {
+				fprintf(stderr,"ERROR: CHAT from client without ID\n");
+				handleError(curClient);
+				return;
+	    	}
+	    
+		    /* store information about CHAT in clientInfo struct */
+		    curClient->msgID = newHeader.msgID;
+	    	memcpy(curClient->destID, newHeader.destID, 20);
+
+		    curClient->mode = CHAT;
+		    curClient->dataToRead = newHeader.dataLength;
+	    	curClient->totalDataExpected = newHeader.dataLength;
+		} else if(newHeader.type == EXIT) {
+		    /* No need to check for errors, 
                we're kicking the client out anyway! */
-		curClient->active = false;
-	    handleExit(curClient);
-	} else if(newHeader.type == PLAYER_REQUEST) {
-		//string augCSV = vectorToAugmentedCSV(playerData);
-		handlePlayerRequest(curClient);
-	} else {
-	    fprintf(stderr, "ERROR: bad header type\n");
-	    handleError(curClient);
-	    return;
-	}
+			curClient->active = false;
+		    handleExit(curClient);
+		} else if(newHeader.type == PLAYER_REQUEST) {
+			//string augCSV = vectorToAugmentedCSV(playerData);
+			handlePlayerRequest(curClient);
+		} else if(newHeader.type == DRAFT_REQUEST) {
+			memset(curClient->partialData, 0, MAXDATASIZE);
+			curClient->mode = DRAFT_REQUEST;
+			curClient->dataToRead = newHeader.dataLength;
+			curClient->totalDataExpected = newHeader.dataLength;
+		} else {
+	    	fprintf(stderr, "ERROR: bad header type\n");
+		    handleError(curClient);
+		    return;
+		}
     }
 }
 
@@ -422,9 +435,16 @@ void readData(struct clientInfo *curClient) {
 		memcpy(curClient->partialData, data_buffer, curClient->totalDataExpected);	
 		fprintf(stderr,"Message read in: curClient->partialData: %s\n",curClient->partialData);
 
-	curClient->dataToRead = 0;
+		curClient->dataToRead = 0;
 
-	handleChat(curClient);
+		if(curClient->mode == CHAT) {
+			handleChat(curClient);
+		} else if(curClient->mode == DRAFT_REQUEST) {
+			handleDraftRequest(curClient);
+		} else {
+			fprintf(stderr, "ERROR: Done reading data but client in invalid mode\n");
+			handleError(curClient);
+		}
     }
 }
 
@@ -589,17 +609,17 @@ void handleChat(struct clientInfo *sender) {
 
     /* find the recipient and make sure they are valid */
     for(i = 0; i < MAXCLIENTS; i++) {
-	if(strcmp(clients[i].ID, sender->destID) == 0) {
-	    if((strcmp(sender->destID, sender->ID) != 0) && (strcmp(sender->destID,"") != 0)) {
-		receiver = &clients[i];
-		badRecipient = 0;
-	    }
-	}
+		if(strcmp(clients[i].ID, sender->destID) == 0) {
+		    if((strcmp(sender->destID, sender->ID) != 0) && (strcmp(sender->destID,"") != 0)) {
+				receiver = &clients[i];
+				badRecipient = 0;
+	    	}
+		}
     }
     
     if(badRecipient == 1) {
-	handleCannotDeliver(sender);
-	return;
+		handleCannotDeliver(sender);
+		return;
     }
 
     /* build CHAT header */
@@ -616,22 +636,22 @@ void handleChat(struct clientInfo *sender) {
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
     do {
-	bytes = write(receiver->sock, (char *)&responseHeader+sent, total-sent);
-	if(bytes < 0) error("ERROR writing to socket");
-	fprintf(stderr,"in handleChat chat header bytes: %d\n", bytes);
-	if(bytes == 0) break;
-	sent+=bytes;
+		bytes = write(receiver->sock, (char *)&responseHeader+sent, total-sent);
+		if(bytes < 0) error("ERROR writing to socket");
+		fprintf(stderr,"in handleChat chat header bytes: %d\n", bytes);
+		if(bytes == 0) break;
+		sent+=bytes;
     } while (sent < total);
 
     /* send partialData aka the message */
     total = sender->totalDataExpected; sent = 0;
     do {
-	bytes = write(receiver->sock, (char *)&sender->partialData[0]+sent, total-sent);
-	write(1, (char *)&sender->partialData[0]+sent, bytes);
-	if(bytes < 0) error("ERROR writing to socket");
-	fprintf(stderr,"in handleChat partialData bytes: %d\n", bytes);
-	if(bytes == 0) break;
-	sent+=bytes;
+		bytes = write(receiver->sock, (char *)&sender->partialData[0]+sent, total-sent);
+		//write(1, (char *)&sender->partialData[0]+sent, bytes);
+		if(bytes < 0) error("ERROR writing to socket");
+		fprintf(stderr,"in handleChat partialData bytes: %d\n", bytes);
+		if(bytes == 0) break;
+		sent+=bytes;
     } while (sent < total);
 }
 
@@ -776,4 +796,20 @@ void handlePlayerRequest(struct clientInfo *curClient) {
 		if(bytes == 0) break;
 		sent+=bytes;
     } while (sent < total);
+}
+
+void handleDraftRequest(clientInfo *curClient) {
+	//string playerName = curClient->partialData;
+
+	fprintf(stderr, "Recieved draft request from %s for %s\n", curClient->ID, curClient->partialData);
+	//playerInfo playerToDraft;
+
+	for(int i = 0; i < playerData.size(); i++) {
+		if(strcmp(playerData[i].PLAYER_NAME, curClient->partialData) == 0) {
+			strcpy(playerData[i].owner,curClient->ID);
+			fprintf(stderr, "The owner of %s is now %s\n",playerData[i].PLAYER_NAME,playerData[i].owner);
+		}
+	}
+
+	handlePlayerRequest(curClient);
 }
