@@ -250,4 +250,3 @@ vector<playerInfo> readAugmentedCSV(string augCSV) {
 	//}
 	return playerData;
 }
-

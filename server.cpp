@@ -20,7 +20,7 @@
 #include <math.h>
 #include <iomanip>
 #include "player.h"
-
+#include <openssl/sha.h>
 
 using namespace std;
 
@@ -66,7 +66,7 @@ struct clientInfo {
 
     int pwordToRead;
     int totalPwordExpected;
-    char pword[IDLENGTH];
+    char pword[65];
     bool validated;
 }__attribute__((packed, aligned(1)));
 
@@ -97,7 +97,7 @@ void handleError(struct clientInfo *curClient);
 void handlePlayerRequest(struct clientInfo *curClient);
 void handleDraftRequest(struct clientInfo *curClient);
 
-string playerToString(playerInfo player); 
+string sha256(const string str);
 
 fd_set active_fd_set, read_fd_set; // Declared here so all functions can use
 
@@ -467,7 +467,14 @@ void readPword(struct clientInfo *curClient) {
 		memcpy(curClient->pword, data_buffer, curClient->totalPwordExpected);
 	} else {
 		/* entire password read */
-		memcpy(curClient->pword, data_buffer, curClient->totalPwordExpected);
+		string hashed = sha256(data_buffer);
+		char hashBuffer[65];
+		for(int i = 0; i < hashed.length(); i++) {
+			hashBuffer[i] = hashed[i];
+		}
+		//fprintf(stderr, "Hashed pword: %s has length %d\n", hashed, hashed.length());
+
+		memcpy(curClient->pword, hashBuffer, hashed.length());
 		fprintf(stderr, "Password read in: curClient->password: %s\n", curClient->pword);
 
 		curClient->pwordToRead = 0;
@@ -475,6 +482,7 @@ void readPword(struct clientInfo *curClient) {
 		handleHello(curClient);
 	}
 }
+
 void handleHello(struct clientInfo *curClient) {
     /* Add client ID to clientInfo */
     // memcpy(curClient->ID, ID, IDLENGTH);
@@ -822,4 +830,18 @@ void handleDraftRequest(clientInfo *curClient) {
 	}
 
 	handlePlayerRequest(curClient);
+}
+
+string sha256(const string str) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, str.c_str(), str.size());
+    SHA256_Final(hash, &sha256);
+    stringstream ss;
+    for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
+    {
+        ss << hex << setw(2) << setfill('0') << (int)hash[i];
+    }
+    return ss.str();
 }
