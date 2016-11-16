@@ -103,7 +103,9 @@ string playerToString(playerInfo player) {
 	s += ", Offensive rating: "; s += ss.str(); ss.str(string());
 	ss << fixed << setprecision(1) << player.DEF_RATING;
 	s += ", Defensive rating "; s += ss.str();
-	s += ", Owner: ";  s+= player.owner;
+	if(strcmp(player.owner,"Server") != 0) {
+		s += " >> Owned by: ";  s+= player.owner;
+	}
 
 	return s;
 }

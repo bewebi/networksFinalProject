@@ -52,6 +52,8 @@ void sendHello();
 void sendPlayerRequest(bool quiet);
 void sendExit();
 
+void showDrafted();
+
 int sockfd, sleepTime;
 int myMsgID = 0;
 bool connected;
@@ -117,7 +119,7 @@ int main(int argc, char *argv[]) {
 
     while(1) {
     	char ch = '\0'; int i = 0; int message = -1;
-    	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message, or 2 to quit\n");
+    	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message from another player, 2 to see all drafted players, or 3 to quit\n");
     	while(read(0,&ch,1) > 0) {
 	       if(ch == 10) {
 	           break;
@@ -126,10 +128,12 @@ int main(int argc, char *argv[]) {
 	        } 
     	}
     	if(message == 0) {
-	       sendMessage();
+	        sendMessage();
 	    } else if (message == 1) {  
     	    readMessage();
     	} else if (message == 2) {
+            showDrafted();
+        } else if (message == 3) {
     	    sendExit();
             break;
     	}
@@ -309,9 +313,10 @@ void readMessage() {
             if(!requestQuietly) {
                 fprintf(stdout, "Here is partial current player data:\n");
                 for(int i = 0; i < playerData.size(); i++) {
-                    if(i%70 == 0)
+                    if(i%50 == 0)
                     cout << playerToString(playerData[i]) << '\n';
                 }
+                cout << '\n';
             }
         }
     }
@@ -396,4 +401,15 @@ void sendPlayerRequest(bool quiet) {
 
     requestQuietly = quiet;
     readMessage();
+}
+
+void showDrafted() {
+    cout << "\nAll drafted players: \n";
+    if(connected) sendPlayerRequest(true);
+    for(int i = 0; i < playerData.size(); i++) {
+        if(strcmp(playerData[i].owner, "Server") != 0) {
+            cout << playerToString(playerData[i]) << '\n';
+        }
+    }
+    cout << '\n';
 }
