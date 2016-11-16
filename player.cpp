@@ -108,6 +108,33 @@ string playerToString(playerInfo player) {
 	return s;
 }
 
+bool playerExists(vector<playerInfo> playerData, char *playerName) {
+	for(int i = 0; i < playerData.size(); i++) {
+		if(strcmp(playerData[i].PLAYER_NAME,playerName) == 0) {
+			//fprintf(stderr, "Player %s exists!\n", playerName);
+			return true;
+		}
+	}
+//	fprintf(stderr, "Player %s does not exist!\n", playerName);
+	return false;
+}
+
+bool playerDrafted(vector<playerInfo> playerData, char *playerName) {
+	for(int i = 0; i < playerData.size(); i++) {
+		if(strcmp(playerData[i].PLAYER_NAME,playerName) == 0) {
+			if(strcmp(playerData[i].owner,"Server") == 0) {
+//				fprintf(stderr, "Player %s is not yet drafted\n", playerName);
+				return false;
+			} else {
+//				fprintf(stderr, "Player %s is drafted\n", playerName);
+				return true;
+			}
+		}
+	}
+//	fprintf(stderr, "Player %s is not yet drafted\n", playerName);
+	return false;
+}
+
 string vectorToAugmentedCSV(vector<playerInfo> playerData) {
 	string s;
 	for(int i = 0; i < playerData.size(); i++) {

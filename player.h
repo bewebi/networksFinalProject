@@ -49,3 +49,5 @@ vector<playerInfo> readCSV(string filename);
 string playerToString(playerInfo player);
 string vectorToAugmentedCSV(vector<playerInfo> playerData);
 vector<playerInfo> readAugmentedCSV(string augCSV);
+bool playerDrafted(vector<playerInfo> playerData, char *playerName);
+bool playerExists(vector<playerInfo> playerData, char *playerName);

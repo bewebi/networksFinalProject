@@ -49,15 +49,19 @@ void sendMessage();
 void readMessage();
 
 void sendHello();
+void sendPlayerRequest(bool quiet);
 void sendExit();
 
 int sockfd, sleepTime;
 int myMsgID = 0;
+bool connected;
 
 vector<playerInfo> playerData;
 char username[20];
 char pword[20];
 char serv[20] = "Server";
+
+bool requestQuietly;
 
 int main(int argc, char *argv[]) {
     if(argc != 3) {
@@ -88,6 +92,7 @@ int main(int argc, char *argv[]) {
     memcpy(&serv_addr.sin_addr.s_addr,server->h_addr,server->h_length);
 
     if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) error("ERROR connecting");
+    connected = true;
     fprintf(stdout, "Connected to the server!\n");
    
     fprintf(stdout, "What is your username? \n");
@@ -148,17 +153,23 @@ void sendMessage() {
     	i++;
     }
     short type = 0;
-    for(int j = 0; j <= i; j++) {
+    for(int j = 0; j < i; j++) {
         type += (buffer[i-j-1] * pow(10,j));
     }
 
-    headerToSend.type = type;
     //memcpy(&headerToSend.type,type, sizeof(short));
-    fprintf(stdout, "You selected type %hu\n",headerToSend.type);
-    if(headerToSend.type != 3 && headerToSend.type != 5 && headerToSend.type != 6 && headerToSend.type != 9 && headerToSend.type != 11) {
+    fprintf(stdout, "You selected type %hu\n",type);
+    if(type != 3 && type != 5 && type != 6 && type != 9 && type != 11) {
         fprintf(stdout, "This is not a valid type; aborting message send\n");
         return;
     }
+
+    if(type == PLAYER_REQUEST) {
+        sendPlayerRequest(false);
+        return;
+    }
+    headerToSend.type = type;
+
     i = 0;
 
     memcpy(headerToSend.sourceID,username,strlen(username));
@@ -178,8 +189,6 @@ void sendMessage() {
     }
     memcpy(headerToSend.destID,buffer,i);
     //fprintf(stdout, "destID is %s\n",headerToSend.destID);
-    i = 0;
-    memset(buffer,0,sizeof(buffer));
 
     i = 0;
     memset(buffer,0,sizeof(buffer));
@@ -204,6 +213,7 @@ void sendMessage() {
         i++;
         if(i > 1) fprintf(stdout, "Your message of size %d is as follows: %s\n\n",i,buffer);
     } else if(headerToSend.type == DRAFT_REQUEST) {
+        if(connected) sendPlayerRequest(true);
         fprintf(stdout, "Which player would you like to draft?\n");
         while(read(0,&ch,1) > 0) {
             if(ch == 10) break;
@@ -212,6 +222,11 @@ void sendMessage() {
         }
         buffer[i] = '\0';
         i++;
+
+        if((!playerExists(playerData,buffer) || playerDrafted(playerData,buffer))) {
+            fprintf(stdout, "The player you have selected does not exist is or is already drafted.\n");
+            return;
+        }
     }
     
     headerToSend.type = htons(headerToSend.type);
@@ -265,7 +280,7 @@ void readMessage() {
     headerToRead.length = ntohl(headerToRead.length);
     headerToRead.msgID = ntohl(headerToRead.msgID);
 
-    //fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
+//    fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
 	if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
     }
@@ -280,6 +295,7 @@ void readMessage() {
     	    if(bytes < 0) error("ERROR reading data from socket\n");
     	    if(bytes == 0) break;
     	    received+=bytes;
+//            fprintf(stderr, "Recieved %d bytes of the data body\n", received);
 	    }
 
         if(headerToRead.type != PLAYER_RESPONSE) {
@@ -290,10 +306,12 @@ void readMessage() {
         } else {
             //fprintf(stdout, "augCSV: \n %s", dataBuffer);
             playerData = readAugmentedCSV(dataBuffer);
-            fprintf(stderr, "Here is some player data to prove it was received:\n");
-            for(int i; i < playerData.size(); i++) {
-                if(i%100 == 0)
-                cout << playerToString(playerData[i]) << '\n';
+            if(!requestQuietly) {
+                fprintf(stdout, "Here is partial current player data:\n");
+                for(int i = 0; i < playerData.size(); i++) {
+                    if(i%70 == 0)
+                    cout << playerToString(playerData[i]) << '\n';
+                }
             }
         }
     }
@@ -331,6 +349,8 @@ void sendHello() {
 
     readMessage();
     readMessage();
+
+    sendPlayerRequest(true);
 }
 
 void sendExit() {
@@ -352,4 +372,28 @@ void sendExit() {
         sent+=bytes;
         //fprintf(stdout,"Sent %d bytes of the exit header\n",sent);
     } while (sent < total);
+}
+
+void sendPlayerRequest(bool quiet) {
+    struct header playerReqHeader;
+    memset(&playerReqHeader, 0, sizeof(playerReqHeader));
+    playerReqHeader.type = htons(PLAYER_REQUEST);
+    memcpy(playerReqHeader.sourceID,username,strlen(username));
+    memcpy(playerReqHeader.destID,serv,strlen(serv));
+    playerReqHeader.length = htonl(0);
+    playerReqHeader.msgID = htonl(0);
+
+    int total = sizeof(playerReqHeader);
+    int sent = 0;
+    int bytes;
+    do {
+        bytes = write(sockfd,(char *)&playerReqHeader+sent,total-sent);
+        if(bytes < 0) error("ERROR writing message to socket");
+        if(bytes == 0) break;
+        sent+=bytes;
+        //fprintf(stdout,"Sent %d bytes of the hello header\n",sent);
+    } while (sent < total);
+
+    requestQuietly = quiet;
+    readMessage();
 }
