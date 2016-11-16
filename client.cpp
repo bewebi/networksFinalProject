@@ -259,8 +259,11 @@ void sendMessage() {
     	}
     }
 
-    if(type == DRAFT_REQUEST || type == LIST_REQUEST || type == PLAYER_REQUEST) {
+    if(type == LIST_REQUEST || type == PLAYER_REQUEST) {
         readMessage();
+    }
+    if(type == DRAFT_REQUEST) {
+        showDrafted();
     }
 }
 

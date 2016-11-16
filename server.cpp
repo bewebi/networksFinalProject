@@ -396,6 +396,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 		    /* No need to check for errors, 
                we're kicking the client out anyway! */
 			curClient->active = false;
+			curClient->validated = false;
 		    handleExit(curClient);
 		} else if(newHeader.type == PLAYER_REQUEST) {
 			//string augCSV = vectorToAugmentedCSV(playerData);
@@ -666,7 +667,8 @@ void handleExit(struct clientInfo *curClient) {
 		curClient->active = false;
 		curClient->sock = -1;
 	} else {
-		fprintf(stderr, "exit: not active or not validated\n");
+		if(!curClient->active) fprintf(stderr, "exit: not active\n");
+		if(!curClient->validated) fprintf(stderr, "exit: not validated\n");
 		int sock = curClient->sock;
 		close(sock);
 		FD_CLR(sock, &read_fd_set);
@@ -674,6 +676,14 @@ void handleExit(struct clientInfo *curClient) {
 	    for(int i = 0; i < MAXCLIENTS; i++) {
 	    	if(curClient->sock == 0) break;
 			if((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)) {
+				if(!curClient->validated) {
+					for(int i = 0; i < playerData.size(); i++) {
+						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
+							memset(playerData[i].owner,0,IDLENGTH);
+							strcpy(playerData[i].owner,"Server");
+						}
+					}
+				}
 			    fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,curClient->sock);
 			    memset(curClient, 0, sizeof(curClient));
 			}
