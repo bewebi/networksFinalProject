@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) {
 
     while(1) {
     	char ch = '\0'; int i = 0; int message = -1;
-    	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message from another player, 2 to see all drafted players, or 3 to quit\n");
+    	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message from another player, 2 to see all drafted players, 3 to log out, or 4 to quit permanently\n");
     	while(read(0,&ch,1) > 0) {
 	       if(ch == 10) {
 	           break;
@@ -134,9 +134,12 @@ int main(int argc, char *argv[]) {
     	} else if (message == 2) {
             showDrafted();
         } else if (message == 3) {
-    	    sendExit();
+    	    //sendExit();
             break;
-    	}
+    	} else if (message == 4) {
+            sendExit();
+            break;
+        }
     }
     fprintf(stdout, "Quitting! Have a nice day\n");
     close(sockfd);
