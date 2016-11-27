@@ -28,6 +28,7 @@ using namespace std;
 #define MAXDATASIZE 400
 #define MAXCLIENTS 200
 #define IDLENGTH 20 // Includes null character
+#define TEAMSIZE 12
 
 #define HELLO 1
 #define HELLO_ACK 2
@@ -70,8 +71,24 @@ struct clientInfo {
     bool validated;
 }__attribute__((packed, aligned(1)));
 
+struct team
+{
+	string owner;
+	int budget;
+	int playersDrafted;
+	playerInfo players[TEAMSIZE];
+};
+
+struct auction {
+	int index;
+	bool forwards;
+	int currentRound;
+	vector<team> teams;
+};
+
 struct clientInfo clients[MAXCLIENTS];
 int clientCounter = 0;
+int numClients = 0;
 
 vector<playerInfo> playerData;
 
@@ -170,6 +187,7 @@ int main(int argc, char *argv[])
 					    	inserted = 1;
 						}
 					 	clientCounter++;
+					 	numClients++;
 						clientCounter = clientCounter % MAXCLIENTS;
 				    }
 		    		fprintf(stderr, "New connection with newsockfd: %d\n", newsockfd);
@@ -696,10 +714,8 @@ void handleExit(struct clientInfo *curClient) {
 			    memset(curClient, 0, sizeof(curClient));
 			}
 	    }
+	    numClients--;
 	}
-
-    /* remove record from list of clients */
-    /* just kidding, just pause them */
 }
 
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
