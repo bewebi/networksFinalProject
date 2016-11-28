@@ -71,6 +71,10 @@ struct clientInfo {
     int totalPwordExpected;
     char pword[65];
     bool validated;
+
+    float estRTT;
+    float devRTT;
+    float timeToWait;
 }__attribute__((packed, aligned(1)));
 
 struct team
@@ -94,6 +98,9 @@ int numClients = 0;
 
 vector<playerInfo> playerData;
 
+const float alpha = 0.875;
+const float beta = 0.25;
+
 void error(const char *msg)
 {
     perror(msg);
@@ -115,6 +122,8 @@ void handleCannotDeliver(struct clientInfo *curClient);
 void handleError(struct clientInfo *curClient);
 void handlePlayerRequest(struct clientInfo *curClient);
 void handleDraftRequest(struct clientInfo *curClient);
+
+void ping(struct clientInfo *curClient);
 
 string sha256(const string str);
 
@@ -848,6 +857,11 @@ void handleDraftRequest(clientInfo *curClient) {
 	}
 
 	handlePlayerRequest(curClient);
+}
+
+void ping(clientInfo *curClient) {
+
+
 }
 
 string sha256(const string str) {

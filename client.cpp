@@ -169,8 +169,13 @@ int main(int argc, char *argv[]) {
                 } else {
                     // input from server (hopefully)
 //                    fprintf(stderr, "In else (selected, i != 0)\n");
+                    if(connected) {
+                        readMessage();
+                    } else {
+                        FD_CLR(sockfd,&read_fd_set);
+                        FD_CLR(sockfd,&active_fd_set);
+                    }
                     printMessage = false;
-                    readMessage();
                 }
             }
         }
@@ -313,10 +318,14 @@ void readMessage() {
 
     memset(headerBuffer,0,sizeof(headerBuffer));
     while(received < total) {
-	bytes = read(sockfd,headerBuffer+received,total-received);
-	if(bytes < 0) error("ERROR reading header from socket\n");
-	if(bytes == 0) break;
-	received+=bytes;
+        bytes = read(sockfd,headerBuffer+received,total-received);
+        if(bytes < 0) error("ERROR reading header from socket\n");
+    	if(bytes == 0) {
+            fprintf(stdout, "Server disconnected!\n");
+            connected = false;
+            return;
+        }
+    	received+=bytes;
     }
 
     struct header headerToRead;
