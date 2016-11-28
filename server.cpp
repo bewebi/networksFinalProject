@@ -41,6 +41,8 @@ using namespace std;
 #define PLAYER_REQUEST 9
 #define PLAYER_RESPONSE 10
 #define DRAFT_REQUEST 11
+#define PING 12
+#define PING_RESPONSE 13
 
 struct header {
     unsigned short type;

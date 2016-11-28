@@ -28,6 +28,8 @@
 #define PLAYER_REQUEST 9
 #define PLAYER_RESPONSE 10
 #define DRAFT_REQUEST 11
+#define PING 12
+#define PING_RESPONSE 13
 
 struct header {
     short type;
@@ -64,6 +66,7 @@ char pword[20];
 char serv[20] = "Server";
 
 bool requestQuietly;
+fd_set active_fd_set, read_fd_set;
 
 int main(int argc, char *argv[]) {
     if(argc != 3) {
@@ -96,7 +99,11 @@ int main(int argc, char *argv[]) {
     if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) error("ERROR connecting");
     connected = true;
     fprintf(stdout, "Connected to the server!\n");
-   
+    
+    FD_ZERO(&active_fd_set);
+    FD_SET(sockfd,&active_fd_set);
+    FD_SET(1,&active_fd_set);
+
     fprintf(stdout, "What is your username? \n");
     char ch; int i = 0;
     while((read(0,&ch,1) > 0) && (i < 19) ) {
@@ -117,29 +124,57 @@ int main(int argc, char *argv[]) {
     fprintf(stdout, "Your password is %s\n\n", pword);
     sendHello();
 
-    while(1) {
+    bool exiting = false;
+    bool printMessage = true;
+    while(!exiting) {
     	char ch = '\0'; int i = 0; int message = -1;
-    	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message from another player, 2 to see all drafted players, 3 to log out, or 4 to quit permanently\n");
-    	while(read(0,&ch,1) > 0) {
-	       if(ch == 10) {
-	           break;
-    	    } else {
-        	   	message = ch - 48;
-	        } 
-    	}
-    	if(message == 0) {
-	        sendMessage();
-	    } else if (message == 1) {  
-    	    readMessage();
-    	} else if (message == 2) {
-            showDrafted();
-        } else if (message == 3) {
-    	    //sendExit();
-            break;
-    	} else if (message == 4) {
-            sendExit();
-            break;
+        if(printMessage) {
+        	fprintf(stdout, "Type 0 to send a message, 1 to wait for a message from another player, 2 to see all drafted players, 3 to log out, or 4 to quit permanently\n");
         }
+
+        read_fd_set = active_fd_set;
+
+        if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL) < 0) {
+            error("ERROR on select");
+        }
+
+        for(int i = 0; i < FD_SETSIZE; i++) {
+            if(FD_ISSET(i, &read_fd_set)) {
+                if(i == 1) { // iput on stdin
+                	while(read(0,&ch,1) > 0) {
+            	       if(ch == 10) {
+            	           break;
+                	    } else {
+                    	   	message = ch - 48;
+            	        } 
+                	}
+
+                    printMessage = true;
+
+                	if(message == 0) {
+            	        sendMessage();
+            	    } else if (message == 1) {  
+                	    readMessage();
+                	} else if (message == 2) {
+                        showDrafted();
+                    } else if (message == 3) {
+                	    //sendExit();
+                        exiting = true;
+                        break;
+                	} else if (message == 4) {
+                        sendExit();
+                        exiting = true;
+                        break;
+                    }
+                } else {
+                    // input from server (hopefully)
+//                    fprintf(stderr, "In else (selected, i != 0)\n");
+                    printMessage = false;
+                    readMessage();
+                }
+            }
+        }
+
     }
     fprintf(stdout, "Quitting! Have a nice day\n");
     close(sockfd);
