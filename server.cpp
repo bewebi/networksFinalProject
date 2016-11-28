@@ -856,7 +856,11 @@ void handleDraftRequest(clientInfo *curClient) {
 		}
 	}
 
-	handlePlayerRequest(curClient);
+	for(int i = 0; i < MAXCLIENTS; i++) {
+		if(clients[i].active) {
+			handlePlayerRequest(&clients[i]);		
+		}
+	}
 }
 
 void ping(clientInfo *curClient) {
