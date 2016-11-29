@@ -78,7 +78,7 @@ struct clientInfo {
     struct timeval lastPingSent;
     float estRTT;
     float devRTT;
-    float timeToWait;
+    float timeout;
 }__attribute__((packed, aligned(1)));
 
 struct team
@@ -99,10 +99,13 @@ struct auction {
 struct clientInfo clients[MAXCLIENTS];
 int clientCounter = 0;
 int numClients = 0;
-int maxDelay = 300000;
+int maxDelay = 0;
+bool pingNow = false;
+//struct timeval selectTimeout = {1,0};
 
 vector<playerInfo> playerData;
 
+const float minTimeout = 50.0;
 const float alpha = 0.875;
 const float beta = 0.25;
 
@@ -174,16 +177,29 @@ int main(int argc, char *argv[])
     FD_SET(sockfd, &active_fd_set);
  
     clilen = sizeof(cli_addr); 
-    while(1) { 
+    while(1) {
+    	if(pingNow) {
+			for(int i = 0; i < MAXCLIENTS; i++) {
+				if(clients[i].active) {
+					sendPing(&clients[i]);
+				}
+			}
+		}
+
+		//fprintf(stderr, "While again\n");
+		pingNow = true;
+
+		struct timeval selectTimeout = {5,0};
 		read_fd_set = active_fd_set;
 		/* Block until input arrives on one or more active sockets */
-		if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL) < 0) {
+		if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, &selectTimeout) < 0) {
 		    error("ERROR on select");
 		}
 
 		/* Service all the sockets with input pending */
 		for(i = 0; i < FD_SETSIZE; i++) { //FD_SETSIZE == 1024
 	    	if(FD_ISSET(i, &read_fd_set)) {
+	    		pingNow = false;
 				if(i == sockfd) {
 			    	/* Connection request on original socket */
 				    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
@@ -197,6 +213,7 @@ int main(int argc, char *argv[])
 			    	newClient.headerToRead = HEADERSIZE;
 		    		newClient.active = true;
 			    	newClient.validated = false;
+			    	newClient.timeout = 5000;
 				    int inserted = 0;
 				    while(inserted == 0) {
 						if(clients[clientCounter].sock == NULL) {
@@ -297,7 +314,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 		newHeader.msgID = ntohl(newHeader.msgID);
 		curClient->headerToRead = HEADERSIZE;
 
-		//fprintf (stderr, "complete header: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", newHeader.type, newHeader.sourceID, newHeader.destID, newHeader.dataLength, newHeader.msgID);
+		fprintf (stderr, "Read-in header: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", newHeader.type, newHeader.sourceID, newHeader.destID, newHeader.dataLength, newHeader.msgID);
 
 		/* identify potential bad input */
 		if((strcmp(newHeader.sourceID,curClient->ID) != 0) && (strcmp(curClient->ID,"") != 0) && curClient->active) {
@@ -444,6 +461,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 		}else if(newHeader.type == PING_RESPONSE) {
 			memset(curClient->partialData,0,MAXDATASIZE);
 			curClient->mode = PING_RESPONSE;
+			curClient->msgID = newHeader.msgID;
 			curClient->dataToRead = newHeader.dataLength;
 			curClient->totalDataExpected = newHeader.dataLength;
 		} else {
@@ -593,7 +611,8 @@ void handleHello(struct clientInfo *curClient) {
     }
 
     handleListRequest(curClient);
-    curClient->pings = 10;
+    //curClient->estRTT = 100;
+    //curClient->pings = 50;
     sendPing(curClient);
 }
 
@@ -674,6 +693,8 @@ void handleChat(struct clientInfo *sender) {
 		handleCannotDeliver(sender);
 		return;
     }
+
+    //sendPing(receiver);
 
     /* build CHAT header */
     struct header responseHeader;
@@ -819,6 +840,7 @@ void handleError(struct clientInfo *curClient) {
 }
 
 void handlePlayerRequest(struct clientInfo *curClient) {
+	//sendPing(curClient);
 	string augCSV = vectorToAugmentedCSV(playerData);
     /* construct IDs buffer */
     char augCSVBuffer[augCSV.size()];
@@ -873,6 +895,7 @@ void handleDraftRequest(clientInfo *curClient) {
 
 	for(int i = 0; i < MAXCLIENTS; i++) {
 		if(clients[i].active) {
+			//sendPing(&clients[i]);
 			handlePlayerRequest(&clients[i]);		
 		}
 	}
@@ -888,7 +911,7 @@ void sendPing(clientInfo *curClient) {
     strcpy(responseHeader.sourceID, "Server");
     strcpy(responseHeader.destID, curClient->ID);
     responseHeader.dataLength = htonl(0);
-    responseHeader.msgID = htonl(curClient->pingID++);
+    responseHeader.msgID = htonl(++curClient->pingID);
 
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
@@ -913,6 +936,25 @@ void handlePingResponse(clientInfo *curClient) {
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_usec / 1000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_usec / 1000));
 
 	fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
+	fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
+	if(curClient->msgID != curClient->pingID) return;
+
+	if(delayms < curClient->timeout) {
+		if(curClient->estRTT == 0) {
+			curClient->estRTT = delayms;
+		} else {
+			curClient->estRTT = (alpha * curClient->estRTT) + (delayms * (1.0 - alpha));
+		}
+
+		curClient->devRTT = (beta * fabs(delayms - curClient->estRTT)) + ((1.0 - beta) * curClient->devRTT);
+		curClient->timeout = max((curClient->estRTT + (4 * curClient->devRTT)), minTimeout);
+
+		fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
+		if(curClient->timeout > maxDelay) {
+			maxDelay = curClient->timeout;
+		}
+	}
+
 	if(curClient->pings-- > 0) {
 		sendPing(curClient);
 	}

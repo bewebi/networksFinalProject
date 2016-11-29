@@ -67,6 +67,7 @@ char username[20];
 char pword[20];
 char serv[20] = "Server";
 
+bool lastReadWasPing = false;
 bool requestQuietly;
 fd_set active_fd_set, read_fd_set;
 
@@ -167,8 +168,9 @@ int main(int argc, char *argv[]) {
                         break;
                     }
                 } else {
-                    // input from server (hopefully)
-//                    fprintf(stderr, "In else (selected, i != 0)\n");
+                    // input from server
+                    //fprintf(stderr, "about to read from server\n");
+
                     if(connected) {
                         readMessage();
                     } else {
@@ -187,6 +189,7 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+// TODO: Allow message input while header is being compiled
 void sendMessage() {
     struct header headerToSend;
     char ch; int i = 0;
@@ -304,7 +307,8 @@ void sendMessage() {
 
     fprintf(stdout, "Sent!\n");
     if(type == LIST_REQUEST || type == PLAYER_REQUEST) {
-        readMessage();
+        lastReadWasPing = true;
+        while(lastReadWasPing) readMessage();
     }
     if(type == DRAFT_REQUEST) {
         showDrafted();
@@ -335,14 +339,18 @@ void readMessage() {
     headerToRead.length = ntohl(headerToRead.length);
     headerToRead.msgID = ntohl(headerToRead.msgID);
 
-//    fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
+    // fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
 	if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
         return;
     }
 
     if(headerToRead.type == PING) {
+        lastReadWasPing = true;
         replyPing(headerToRead.msgID);
+        return;
+    } else {
+        lastReadWasPing = false;
     }
 
     if(headerToRead.length > 0) {
@@ -355,20 +363,28 @@ void readMessage() {
     	    if(bytes < 0) error("ERROR reading data from socket\n");
     	    if(bytes == 0) break;
     	    received+=bytes;
-//            fprintf(stderr, "Recieved %d bytes of the data body\n", received);
+            // fprintf(stderr, "Recieved %d bytes of the data body\n", received);
 	    }
-
+        
         if(headerToRead.type == CHAT) {
         	for(int i = 0; i < headerToRead.length; i++) {
         	    if(dataBuffer[i] == 0) dataBuffer[i] = 32;
 	        }
         	fprintf(stdout,"Message from %s:\n%s\n",headerToRead.sourceID,dataBuffer);
-        } else if(headerToRead.type == LIST_REQUEST) {
+        }
+
+        if(headerToRead.type == HELLO_ACK) {
+            fprintf(stdout, "%s\n", dataBuffer);
+        }
+
+        if(headerToRead.type == CLIENT_LIST) {
             for(int i = 0; i < headerToRead.length; i++) {
                 if(dataBuffer[i] == 0) dataBuffer[i] = 32;
             }
             fprintf(stdout,"Current clients:\n%s\n",dataBuffer);
-        } else if(headerToRead.type == PLAYER_RESPONSE) {
+        }
+
+        if(headerToRead.type == PLAYER_RESPONSE) {
             //fprintf(stdout, "augCSV: \n %s", dataBuffer);
             playerData = readAugmentedCSV(dataBuffer);
             if(!requestQuietly) {
@@ -413,8 +429,11 @@ void sendHello() {
         //fprintf(stdout,"Sent %d bytes of the password\n");
     }
 
-    readMessage();
-    readMessage();
+    lastReadWasPing = true;
+    while(lastReadWasPing) readMessage();
+
+    lastReadWasPing = true;
+    while(lastReadWasPing) readMessage();
 
     sendPlayerRequest(true);
 }
@@ -461,11 +480,14 @@ void sendPlayerRequest(bool quiet) {
     } while (sent < total);
 
     requestQuietly = quiet;
-    readMessage();
+    lastReadWasPing = true;
+    while(lastReadWasPing) {
+        readMessage();
+    }
 }
 
 void replyPing(int pingID) {
-    //usleep(200000);
+    //usleep(100000);
     struct timeval curTime;
     char timeBuffer[sizeof(curTime)];
     struct header pingReplyHeader;
@@ -505,6 +527,7 @@ void replyPing(int pingID) {
 void showDrafted() {
     cout << "\nAll drafted players: \n";
     if(connected) sendPlayerRequest(true);
+    usleep(500000);
     for(int i = 0; i < playerData.size(); i++) {
         if(strcmp(playerData[i].owner, "Server") != 0) {
             cout << playerToString(playerData[i]) << '\n';
