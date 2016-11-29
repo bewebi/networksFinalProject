@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -72,6 +73,9 @@ struct clientInfo {
     char pword[65];
     bool validated;
 
+    int pingID;
+    int pings;
+    struct timeval lastPingSent;
     float estRTT;
     float devRTT;
     float timeToWait;
@@ -95,6 +99,7 @@ struct auction {
 struct clientInfo clients[MAXCLIENTS];
 int clientCounter = 0;
 int numClients = 0;
+int maxDelay = 300000;
 
 vector<playerInfo> playerData;
 
@@ -122,8 +127,9 @@ void handleCannotDeliver(struct clientInfo *curClient);
 void handleError(struct clientInfo *curClient);
 void handlePlayerRequest(struct clientInfo *curClient);
 void handleDraftRequest(struct clientInfo *curClient);
+void handlePingResponse(struct clientInfo *curClient);
 
-void ping(struct clientInfo *curClient);
+void sendPing(struct clientInfo *curClient);
 
 string sha256(const string str);
 
@@ -435,6 +441,11 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 			curClient->mode = DRAFT_REQUEST;
 			curClient->dataToRead = newHeader.dataLength;
 			curClient->totalDataExpected = newHeader.dataLength;
+		}else if(newHeader.type == PING_RESPONSE) {
+			memset(curClient->partialData,0,MAXDATASIZE);
+			curClient->mode = PING_RESPONSE;
+			curClient->dataToRead = newHeader.dataLength;
+			curClient->totalDataExpected = newHeader.dataLength;
 		} else {
 	    	fprintf(stderr, "ERROR: bad header type\n");
 		    handleError(curClient);
@@ -471,6 +482,8 @@ void readData(struct clientInfo *curClient) {
 			handleChat(curClient);
 		} else if(curClient->mode == DRAFT_REQUEST) {
 			handleDraftRequest(curClient);
+		} else if(curClient->mode == PING_RESPONSE) {
+			handlePingResponse(curClient);
 		} else {
 			fprintf(stderr, "ERROR: Done reading data but client in invalid mode\n");
 			handleError(curClient);
@@ -580,6 +593,8 @@ void handleHello(struct clientInfo *curClient) {
     }
 
     handleListRequest(curClient);
+    curClient->pings = 10;
+    sendPing(curClient);
 }
 
 void handleListRequest(struct clientInfo *curClient) {
@@ -863,9 +878,44 @@ void handleDraftRequest(clientInfo *curClient) {
 	}
 }
 
-void ping(clientInfo *curClient) {
+void sendPing(clientInfo *curClient) {
+	//struct  timeval startTime;
+	//char timeBuffer[sizeof(startTime)];
 
+	struct header responseHeader;
+	memset(&responseHeader,0,sizeof(responseHeader));
+    responseHeader.type = htons(PING);
+    strcpy(responseHeader.sourceID, "Server");
+    strcpy(responseHeader.destID, curClient->ID);
+    responseHeader.dataLength = htonl(0);
+    responseHeader.msgID = htonl(curClient->pingID++);
 
+    int bytes, sent, total;
+    total = HEADERSIZE; sent = 0;
+    do {
+	    gettimeofday(&curClient->lastPingSent, NULL);
+		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
+		if(bytes < 0) error("ERROR writing to socket");
+		if(bytes == 0) break;
+		sent+=bytes;
+    } while (sent < total);
+
+    //readHeader(curClient, curClient->sock);
+    //readData(curClient);
+    //memcpy(timeBuffer,&startTime,sizeof(startTime));
+}
+
+void handlePingResponse(clientInfo *curClient) {
+	struct timeval sentTime, curTime;
+	gettimeofday(&curTime, NULL);
+	memcpy((char *)&sentTime,curClient->partialData,sizeof(sentTime));
+
+	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_usec / 1000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_usec / 1000));
+
+	fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
+	if(curClient->pings-- > 0) {
+		sendPing(curClient);
+	}
 }
 
 string sha256(const string str) {
