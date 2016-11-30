@@ -44,10 +44,12 @@ void error(const char *msg) {
     perror(msg);
     exit(1);
 }
+
 int min(int a, int b) {
     if(a < b) return a;
     else return b;
 }
+
 void sendMessage();
 void readMessage();
 
@@ -125,6 +127,22 @@ int main(int argc, char *argv[]) {
     }
     pword[19] = '\0';
     fprintf(stdout, "Your password is %s\n\n", pword);
+
+    fprintf(stdout, "How many ms of latency do you want to add to pings?\n");
+    char buffer[8];
+    i = 0;
+    while(read(0,&ch,1) > 0){
+        if(ch == 10) break;
+        buffer[i] = (ch - 48);
+        i++;
+    }
+
+    sleepTime = 0;
+    for(int j = 0; j < i; j++) {
+        sleepTime += (buffer[i-j-1] * pow(10,j));
+    }
+
+    fprintf(stdout, "Sleeping for %d ms on pings\n", sleepTime);
     sendHello();
 
     bool exiting = false;
@@ -487,7 +505,10 @@ void sendPlayerRequest(bool quiet) {
 }
 
 void replyPing(int pingID) {
-    //usleep(100000);
+    //fprintf(stderr, "About to sleep for %d ms\n", sleepTime);
+    usleep(sleepTime * 1000);
+    //fprintf(stderr, "Done sleeping!\n");
+
     struct timeval curTime;
     char timeBuffer[sizeof(curTime)];
     struct header pingReplyHeader;
