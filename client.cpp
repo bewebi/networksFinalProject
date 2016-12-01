@@ -143,6 +143,7 @@ int main(int argc, char *argv[]) {
     }
 
     fprintf(stdout, "Sleeping for %d ms on pings\n", sleepTime);
+    sleepTime = sleepTime * 500; // *1000 for nanoseconds to millisecons, /2 for round trip
     sendHello();
 
     bool exiting = false;
@@ -303,6 +304,7 @@ void sendMessage() {
     int total = sizeof(headerToSend);
     int sent = 0;
     int bytes;
+    usleep(sleepTime);
     do {
     	bytes = write(sockfd,(char *)&headerToSend+sent,total-sent);
     	if(bytes < 0) error("ERROR writing message to socket");
@@ -340,6 +342,7 @@ void readMessage() {
     int bytes;
 
     memset(headerBuffer,0,sizeof(headerBuffer));
+    usleep(sleepTime);
     while(received < total) {
         bytes = read(sockfd,headerBuffer+received,total-received);
         if(bytes < 0) error("ERROR reading header from socket\n");
@@ -429,6 +432,7 @@ void sendHello() {
     int total = sizeof(helloHeader);
     int sent = 0;
     int bytes;
+    usleep(sleepTime);
     do {
         bytes = write(sockfd,(char *)&helloHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -468,6 +472,7 @@ void sendExit() {
     int total = sizeof(exitHeader);
     int sent = 0;
     int bytes;
+    usleep(sleepTime);
     do {
         bytes = write(sockfd,(char *)&exitHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -489,6 +494,7 @@ void sendPlayerRequest(bool quiet) {
     int total = sizeof(playerReqHeader);
     int sent = 0;
     int bytes;
+    usleep(sleepTime);
     do {
         bytes = write(sockfd,(char *)&playerReqHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -505,9 +511,6 @@ void sendPlayerRequest(bool quiet) {
 }
 
 void replyPing(int pingID) {
-    //fprintf(stderr, "About to sleep for %d ms\n", sleepTime);
-    usleep(sleepTime * 1000);
-    //fprintf(stderr, "Done sleeping!\n");
 
     struct timeval curTime;
     char timeBuffer[sizeof(curTime)];
@@ -526,6 +529,10 @@ void replyPing(int pingID) {
     int total = sizeof(pingReplyHeader);
     int sent = 0;
     int bytes;
+
+    //fprintf(stderr, "About to sleep for %d ms\n", sleepTime);
+    usleep(sleepTime);
+    //fprintf(stderr, "Done sleeping!\n");
     do {
         bytes = write(sockfd,(char *)&pingReplyHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -534,6 +541,7 @@ void replyPing(int pingID) {
        //fprintf(stdout,"Sent %d bytes of the header\n",sent);
     } while (sent < total);
 
+    // Note: This time stamp is not actually used, but hey
     total = sizeof(curTime);
     sent = 0;
     while(sent < total) {
