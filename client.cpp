@@ -31,6 +31,9 @@
 #define DRAFT_REQUEST 11
 #define PING 12
 #define PING_RESPONSE 13
+#define START_DRAFT 14
+#define DRAFT_STATUS 15
+#define DRAFT_STARTING 16
 
 struct header {
     short type;
@@ -55,6 +58,7 @@ void readMessage();
 
 void sendHello();
 void sendPlayerRequest(bool quiet);
+void sendStartDraft();
 void sendExit();
 void replyPing(int pingID);
 
@@ -70,6 +74,7 @@ char pword[20];
 char serv[20] = "Server";
 
 bool lastReadWasPing = false;
+bool draftInProgress = false;
 bool requestQuietly;
 fd_set active_fd_set, read_fd_set;
 
@@ -151,7 +156,7 @@ int main(int argc, char *argv[]) {
     while(!exiting) {
     	char ch = '\0'; int i = 0; int message = -1;
         if(printMessage) {
-        	fprintf(stdout, "Type 0 to send a message, 1 to see all drafted players, 2 to log out, or 3 to quit permanently\n");
+        	fprintf(stdout, "Type 0 to send a message, 1 to see all drafted players, 2 to toggle draft readiness, 3 to log out, or 4 to quit permanently\n");
         }
 
         read_fd_set = active_fd_set;
@@ -178,10 +183,12 @@ int main(int argc, char *argv[]) {
             	    } else if (message == 1) {
                         showDrafted();
                     } else if (message == 2) {
+                        sendStartDraft();
+                    } else if (message == 3) {
                 	    //sendExit();
                         exiting = true;
                         break;
-                	} else if (message == 3) {
+                	} else if (message == 4) {
                         sendExit();
                         exiting = true;
                         break;
@@ -360,7 +367,7 @@ void readMessage() {
     headerToRead.length = ntohl(headerToRead.length);
     headerToRead.msgID = ntohl(headerToRead.msgID);
 
-    // fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
+    //fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
 	if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
         return;
@@ -394,7 +401,7 @@ void readMessage() {
         	fprintf(stdout,"Message from %s:\n%s\n",headerToRead.sourceID,dataBuffer);
         }
 
-        if(headerToRead.type == HELLO_ACK) {
+        if(headerToRead.type == HELLO_ACK || headerToRead.type == DRAFT_STATUS) {
             fprintf(stdout, "%s\n", dataBuffer);
         }
 
@@ -416,6 +423,11 @@ void readMessage() {
                 }
                 cout << '\n';
             }
+        }
+
+        if(headerToRead.type == DRAFT_STARTING) {
+            draftInProgress = true;
+            fprintf(stdout, "%s\n", dataBuffer);
         }
     }
 }
@@ -458,6 +470,34 @@ void sendHello() {
     while(lastReadWasPing) readMessage();
 
     sendPlayerRequest(true);
+}
+
+void sendStartDraft() {
+    //fprintf(stderr, "In sendStartDraft\n");
+    struct header startDraftHeader;
+    memset(&startDraftHeader, 0, sizeof(startDraftHeader));
+    startDraftHeader.type = htons(START_DRAFT);
+    memcpy(startDraftHeader.sourceID,username,strlen(username));
+    memcpy(startDraftHeader.destID,serv,strlen(serv));
+    startDraftHeader.length = htonl(0);
+    startDraftHeader.msgID = htonl(0);
+
+    //fprintf(stderr, "Made sendStartDraft header\n");
+    int total = sizeof(startDraftHeader);
+    int sent = 0;
+    int bytes;
+    usleep(sleepTime);
+    do {
+        bytes = write(sockfd,(char *)&startDraftHeader+sent,total-sent);
+        if(bytes < 0) error("ERROR writing message to socket");
+        if(bytes == 0) break;
+        sent+=bytes;
+        //fprintf(stdout,"Sent %d bytes of the exit header\n",sent);
+    } while (sent < total);
+    //fprintf(stderr, "Sent sendStartDraft header\n");
+
+    lastReadWasPing = true;
+    while(lastReadWasPing) readMessage();
 }
 
 void sendExit() {
