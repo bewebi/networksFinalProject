@@ -70,11 +70,13 @@ void showDrafted();
 int sockfd, sleepTime;
 int myMsgID = 0;
 bool connected;
+bool draftJustStarted = false;
 
 vector<playerInfo> playerData;
 char username[20];
 char pword[20];
 char serv[20] = "Server";
+//char curPlayer[50];
 
 bool lastReadWasPing = false;
 bool draftInProgress = false;
@@ -352,7 +354,8 @@ void readMessage() {
     int bytes;
 
     memset(headerBuffer,0,sizeof(headerBuffer));
-    usleep(sleepTime);
+    if(!draftJustStarted) usleep(sleepTime);
+    draftJustStarted = false;
     while(received < total) {
         bytes = read(sockfd,headerBuffer+received,total-received);
         if(bytes < 0) error("ERROR reading header from socket\n");
@@ -430,10 +433,14 @@ void readMessage() {
 
         if(headerToRead.type == DRAFT_STARTING) {
             draftInProgress = true;
+            draftJustStarted = true;
             fprintf(stdout, "%s\n", dataBuffer);
+            fprintf(stdout, "Each round will last %d seconds. Don't get left behind!\n", headerToRead.msgID);
+
         }
 
         if(headerToRead.type == DRAFT_ROUND_START) {
+            //memcpy(curPlayer,dataBuffer,50);
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
             fprintf(stdout, "Press 0 to pass, 1 to attempt to claim!\n");
             char ch; int input;
@@ -476,6 +483,10 @@ void readMessage() {
                 if(bytes == 0) break;
                 sent+= bytes;
             }
+        }
+
+        if(headerToRead.type = DRAFT_ROUND_RESULT) {
+            
         }
     }
 }
@@ -644,7 +655,7 @@ void replyPing(int pingID) {
 void showDrafted() {
     cout << "\nAll drafted players: \n";
     if(connected) sendPlayerRequest(true);
-    usleep(500000);
+    //usleep(500000);
     for(int i = 0; i < playerData.size(); i++) {
         if(strcmp(playerData[i].owner, "Server") != 0) {
             cout << playerToString(playerData[i]) << '\n';
