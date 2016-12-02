@@ -34,6 +34,9 @@
 #define START_DRAFT 14
 #define DRAFT_STATUS 15
 #define DRAFT_STARTING 16
+#define DRAFT_ROUND_START 17
+#define DRAFT_ROUND_RESULT 18
+#define DRAFT_PASS 19
 
 struct header {
     short type;
@@ -428,6 +431,51 @@ void readMessage() {
         if(headerToRead.type == DRAFT_STARTING) {
             draftInProgress = true;
             fprintf(stdout, "%s\n", dataBuffer);
+        }
+
+        if(headerToRead.type == DRAFT_ROUND_START) {
+            fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
+            fprintf(stdout, "Press 0 to pass, 1 to attempt to claim!\n");
+            char ch; int input;
+            while(read(0,&ch,1) > 0) {
+                       if(ch == 10) {
+                           break;
+                        } else {
+                            input = ch - 48;
+                        } 
+            }
+
+            struct header draftResponse;
+            memset(&draftResponse,0,sizeof(draftResponse));
+            if(input == 1) {
+                draftResponse.type = htons(DRAFT_REQUEST);
+            } else {
+                draftResponse.type = htons(DRAFT_PASS);
+            }
+            memcpy(draftResponse.sourceID,username,strlen(username));
+            memcpy(draftResponse.destID,serv,strlen(serv));
+            draftResponse.length = htonl(headerToRead.length);
+            draftResponse.msgID = htonl(headerToRead.msgID);
+
+            int total = sizeof(draftResponse);
+            int sent = 0;
+            int bytes;
+            usleep(sleepTime);
+            do {
+                bytes = write(sockfd,(char *)&draftResponse+sent,total-sent);
+                if(bytes < 0) error("ERROR writing message to socket");
+                if(bytes == 0) break;
+                sent+=bytes;
+            } while (sent < total);
+
+            total = headerToRead.length;
+            sent = 0;
+            while(sent < total) {
+                bytes = write(sockfd, dataBuffer+sent, total-sent);
+                if(bytes < 0) error("ERROR writing password to socket");
+                if(bytes == 0) break;
+                sent+= bytes;
+            }
         }
     }
 }

@@ -47,6 +47,8 @@ using namespace std;
 #define START_DRAFT 14
 #define DRAFT_STATUS 15
 #define DRAFT_STARTING 16
+#define DRAFT_ROUND_START 17
+#define DRAFT_ROUND_RESULT 18
 
 struct header {
     unsigned short type;
@@ -88,14 +90,16 @@ struct clientInfo {
 
 struct team
 {
-	string owner;
+	char owner[20];
 	int playersDrafted;
+	timeval adjustedTimeReceived;
 	playerInfo players[TEAMSIZE];
 };
 
-struct auction {
+struct draftInfo {
 	int index;
-//	int currentRound;
+	int currentRound;
+	timeval roundEndTime;
 	vector<team> teams;
 };
 
@@ -105,6 +109,8 @@ int numClients = 0;
 int maxDelay = 0;
 bool pingNow = false;
 bool draftStarted;
+struct draftInfo theDraft;
+timeval roundEndTime;
 
 //struct timeval selectTimeout = {1,0};
 
@@ -140,6 +146,9 @@ void handlePingResponse(struct clientInfo *curClient);
 
 void sendPing(struct clientInfo *curClient);
 void sendStartDraft();
+
+void draftNewRound();
+void endDraftRound();
 
 string sha256(const string str);
 
@@ -185,6 +194,17 @@ int main(int argc, char *argv[])
  
     clilen = sizeof(cli_addr); 
     while(1) {
+    	if(draftStarted) {
+    		timeval curTime;
+    		gettimeofday(&curTime,NULL);
+
+    		fprintf(stderr, "curTime - roundEndTime: %d\n", curTime.tv_sec - theDraft.roundEndTime.tv_sec);
+    		if(curTime.tv_sec > theDraft.roundEndTime.tv_sec) {
+    			endDraftRound();
+    			//break;
+    		}
+    	}
+
     	if(pingNow) {
 			for(int i = 0; i < MAXCLIENTS; i++) {
 				if(clients[i].active) {
@@ -253,7 +273,7 @@ int main(int argc, char *argv[])
 void readFromClient (int sockfd) {
     int i;
     struct clientInfo *curClient;
-    fprintf(stderr, "sockfd: %d\n", sockfd);
+    //fprintf(stderr, "sockfd: %d\n", sockfd);
 
     /* get client address based on sockfd */
     for(i = 0; i < MAXCLIENTS; i++) {
@@ -277,7 +297,7 @@ void readFromClient (int sockfd) {
 						clientCounter++;
 						clientCounter = clientCounter % MAXCLIENTS;
 		     		}
-		    fprintf(stderr, "New client made with previously existing sockfd: %d\n", sockfd);
+		    //fprintf(stderr, "New client made with previously existing sockfd: %d\n", sockfd);
 			}
 		}
     }
@@ -303,7 +323,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
     /* try to read the rest of the header */
     nbytes = read (curClient->sock, &header_buffer[HEADERSIZE-curClient->headerToRead],curClient->headerToRead);
 
-    fprintf(stderr, "readHeader client: %s, nbytes: %d, expected readsize: %d\n",curClient->ID, nbytes,curClient->headerToRead); 
+    //fprintf(stderr, "readHeader client: %s, nbytes: %d, expected readsize: %d\n",curClient->ID, nbytes,curClient->headerToRead); 
 
     if (nbytes <= 0) {
 		/* Read error or EOF: Socket closed */
@@ -491,7 +511,7 @@ void readData(struct clientInfo *curClient) {
     memcpy(data_buffer, curClient->partialData, curClient->totalDataExpected);
     nbytes = read (curClient->sock, &data_buffer[curClient->totalDataExpected-curClient->dataToRead],curClient->dataToRead);
 
-    fprintf(stderr, "nbytes: %d, expected readsize: %d\n",nbytes,curClient->dataToRead); 
+    //fprintf(stderr, "nbytes: %d, expected readsize: %d\n",nbytes,curClient->dataToRead); 
 
     if (nbytes <= 0) {
       /* Read error or EOF */
@@ -527,7 +547,7 @@ void readPword(struct clientInfo *curClient) {
 	memcpy(data_buffer, curClient->pword, curClient->totalPwordExpected);
 	nbytes = read (curClient->sock, &data_buffer[curClient->totalPwordExpected - curClient->pwordToRead], curClient->pwordToRead);
 
-	fprintf(stderr, "nbytes: %d, expected readsize of pword: %d\n", nbytes, curClient->pwordToRead);
+	//fprintf(stderr, "nbytes: %d, expected readsize of pword: %d\n", nbytes, curClient->pwordToRead);
 
 	if (nbytes <= 0) {
 		/* Read error or EOF */
@@ -896,18 +916,40 @@ void handleDraftRequest(clientInfo *curClient) {
 
 	fprintf(stderr, "Recieved draft request from %s for %s\n", curClient->ID, curClient->partialData);
 	//playerInfo playerToDraft;
+	if(draftStarted) {
+		// TODO: Something funky going on here :/
+		for(int i = 0; i < theDraft.teams.size(); i++) {
+			if(strcmp(theDraft.teams[i].owner,curClient->ID) == 0) {
+				fprintf(stderr, "Request from team with owner: %s\n", theDraft.teams[i].owner);
+				timeval adjustedTimeReceived;
+				gettimeofday(&theDraft.teams[i].adjustedTimeReceived, NULL);
 
-	for(int i = 0; i < playerData.size(); i++) {
-		if(strcmp(playerData[i].PLAYER_NAME, curClient->partialData) == 0) {
-			strcpy(playerData[i].owner,curClient->ID);
-			fprintf(stderr, "The owner of %s is now %s\n",playerData[i].PLAYER_NAME,playerData[i].owner);
+				theDraft.teams[i].adjustedTimeReceived.tv_sec += ((maxDelay - curClient->estRTT) / 1000);
+				theDraft.teams[i].adjustedTimeReceived.tv_usec += (((int)(maxDelay - curClient->estRTT) % 1000) * 1000);
+
+				//theDraft.teams[i].adjustedTimeReceived = adjustedTimeReceived;
+				fprintf(stderr, "%s's adjustedTimeReceived.tv_sec: %d\n", theDraft.teams[i].owner,theDraft.teams[i].adjustedTimeReceived.tv_sec);
+			}
 		}
-	}
+	} else {
+//		fprintf(stderr, "Sleeping for %f milliseconds\n", (maxDelay - curClient->estRTT));
+//		usleep((maxDelay - curClient->estRTT) * 1000);
 
-	for(int i = 0; i < MAXCLIENTS; i++) {
-		if(clients[i].active) {
-			//sendPing(&clients[i]);
-			handlePlayerRequest(&clients[i]);		
+		for(int i = 0; i < playerData.size(); i++) {
+			if(strcmp(playerData[i].PLAYER_NAME, curClient->partialData) == 0) {
+				if(strcmp(playerData[i].owner,"Server") == 0) {
+					strcpy(playerData[i].owner,curClient->ID);
+				}
+
+				fprintf(stderr, "The owner of %s is now %s\n",playerData[i].PLAYER_NAME,playerData[i].owner);
+			}
+		}
+
+		for(int i = 0; i < MAXCLIENTS; i++) {
+			if(clients[i].active) {
+				//sendPing(&clients[i]);
+				handlePlayerRequest(&clients[i]);		
+			}
 		}
 	}
 }
@@ -1005,6 +1047,8 @@ void handleStartDraft(clientInfo *curClient) {
 }
 
 void sendStartDraft() {
+	memset(&theDraft,0,sizeof(theDraft));
+
 	fprintf(stderr, "In sendStartDraft\n");
 	struct header responseHeader;
 	memset(&responseHeader,0,sizeof(responseHeader));
@@ -1024,7 +1068,7 @@ void sendStartDraft() {
     for(int i = 0; i < MAXCLIENTS; i++) {
     	fprintf(stderr, "In for with i=%d\n", i);
     	if(clients[i].active) {
-    		fprintf(stderr, "In for with active client: %s\n", clients[i].ID);
+    		//fprintf(stderr, "In for with active client: %s\n", clients[i].ID);
 		    strcpy(responseHeader.destID, clients[i].ID);
     		
 		    int bytes, sent, total;
@@ -1044,8 +1088,15 @@ void sendStartDraft() {
 		        if(bytes == 0) break;
 		        sent+= bytes;
 		    }
+
+		    struct team newTeam;
+		    memset(&newTeam,0,sizeof(newTeam));
+		    strcpy(newTeam.owner, clients[i].ID);
+		    theDraft.teams.push_back(newTeam);
     	}
     }
+
+   	draftNewRound();
 }
 
 void handlePingResponse(clientInfo *curClient) {
@@ -1092,4 +1143,94 @@ string sha256(const string str) {
         ss << hex << setw(2) << setfill('0') << (int)hash[i];
     }
     return ss.str();
+}
+
+void draftNewRound() {
+    theDraft.currentRound++;
+	char curPlayer[50];
+	memset(curPlayer,0,50);
+	memcpy(curPlayer,playerData[theDraft.index].PLAYER_NAME,50);
+
+	fprintf(stderr, "curPlayer in draftNewRound: %s\n", curPlayer);
+	struct header responseHeader;
+	memset(&responseHeader,0,sizeof(responseHeader));
+    responseHeader.type = htons(DRAFT_ROUND_START);
+    strcpy(responseHeader.sourceID, "Server");
+    responseHeader.dataLength = htonl(strlen(curPlayer) + 1);
+    responseHeader.msgID = htonl(theDraft.currentRound);	
+
+    for(int i = 0; i < MAXCLIENTS; i++) {
+    	if(clients[i].active) {
+		    strcpy(responseHeader.destID, clients[i].ID);
+
+			int bytes, sent, total;
+		    total = HEADERSIZE; sent = 0;
+		    do {
+				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
+				if(bytes < 0) error("ERROR writing to socket");
+				if(bytes == 0) break;
+				sent+=bytes;
+		    } while (sent < total);
+
+		   	total = strlen(curPlayer) + 1;	
+		    sent = 0;
+		    while(sent < total) {
+		        bytes = write(clients[i].sock, curPlayer+sent, total-sent);
+		        if(bytes < 0) error("ERROR writing to socket");
+		        if(bytes == 0) break;
+		        sent+= bytes;
+		    }
+		}
+    }
+        
+    for(int i = 0; i < theDraft.teams.size(); i++) {
+    		theDraft.teams[i].adjustedTimeReceived.tv_sec = 0;
+	   		theDraft.teams[i].adjustedTimeReceived.tv_usec = 0;
+    }
+
+    theDraft.index++;
+    //timeval fiveSecs; fiveSecs.tv_sec = 5; fiveSecs.tv_usec = 0;
+    timeval roundTotalTime; roundTotalTime.tv_sec = (maxDelay / 1000) + 10; roundTotalTime.tv_usec = (maxDelay % 1000) * 1000;
+    fprintf(stderr, "roundTotalTime.tv_sec: %d\n", roundTotalTime.tv_sec);
+    timeval curTime;
+
+    gettimeofday(&curTime, NULL);
+
+    timeval roundEndTime;
+    timeradd(&roundTotalTime,&curTime,&roundEndTime);
+    //roundEndTime.tv_sec = roundTotalTime.tv_sec + curTime.tv_sec + ((roundTotalTime.tv_usec + curTime.tv_sec) / 1000000);
+    //roundEndTime.tv_usec = (roundTotalTime.tv_usec + curTime.tv_usec) % 1000000;
+    theDraft.roundEndTime = roundEndTime;
+}
+
+void endDraftRound() {
+	fprintf(stderr, "In endDraftRound\n");
+	char winner[20];
+	memset(winner,0,20);
+
+	timeval quickest;
+	gettimeofday(&quickest, NULL);
+	fprintf(stderr, "quickest has tv_sec: %d\n", quickest.tv_sec);
+
+	for(int i = 0; i < theDraft.teams.size(); i++) {
+		fprintf(stderr, "Team %s had adjustedTimeReceived.tv_sec: %d\n", theDraft.teams[i].owner, theDraft.teams[i].adjustedTimeReceived.tv_sec);
+
+		if(theDraft.teams[i].adjustedTimeReceived.tv_sec != 0) {
+			fprintf(stderr, "First if statement (tv_sec != 0)\n");
+
+			if(timercmp(&theDraft.teams[i].adjustedTimeReceived,&quickest, <)) {
+				fprintf(stderr, "New fastest is: %s\n", theDraft.teams[i].owner);
+				quickest = theDraft.teams[i].adjustedTimeReceived;
+				strcpy(winner,theDraft.teams[i].owner);
+			} 
+		}
+	}
+
+	if(strcmp(winner, "") != 0) {
+		strcpy(playerData[theDraft.index].owner,winner);
+		fprintf(stderr, "%s won %s in round %d of the draft\n", winner, playerData[theDraft.index].PLAYER_NAME, theDraft.currentRound);
+	}
+
+	fprintf(stderr, "End of endDraftRound\n");
+
 }
