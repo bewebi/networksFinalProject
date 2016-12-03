@@ -37,9 +37,10 @@
 #define DRAFT_ROUND_START 17
 #define DRAFT_ROUND_RESULT 18
 #define DRAFT_PASS 19
+#define DRAFT_END 20
 
 struct header {
-    unsigned int type;
+    unsigned short type;
     char sourceID[20];
     char destID[20];
     int length;
@@ -443,6 +444,16 @@ void readMessage() {
         if(headerToRead.type == DRAFT_ROUND_START) {
             //memcpy(curPlayer,dataBuffer,50);
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
+            int index;
+            for(int i = 0; i < playerData.size(); i++) {
+                if(strcmp(playerData[i].PLAYER_NAME, dataBuffer) == 0) {
+                    index = i;
+                    break;
+                }
+            }
+
+            fprintf(stdout, "Stats: Team: %s, Age: %d, FG PCT: %3.1f, O-Rating: %4.1f, D-Rating: %4.1f, Min/G: %3.1f\n", 
+                playerData[index].TEAM_ABBREVIATION,playerData[index].AGE,playerData[index].FG_PCT*100,playerData[index].OFF_RATING,playerData[index].DEF_RATING,playerData[index].MIN);
             fprintf(stdout, "Press 0 to pass, 1 to attempt to claim!\n");
             fd_set stdin_set;
 

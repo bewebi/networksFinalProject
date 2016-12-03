@@ -51,9 +51,10 @@ using namespace std;
 #define DRAFT_ROUND_START 17
 #define DRAFT_ROUND_RESULT 18
 #define DRAFT_PASS 19
+#define DRAFT_END 20
 
 struct header {
-    unsigned int type;
+    unsigned short type;
     char sourceID[IDLENGTH];
     char destID[IDLENGTH];
     unsigned int dataLength;
