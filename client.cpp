@@ -39,7 +39,7 @@
 #define DRAFT_PASS 19
 
 struct header {
-    short type;
+    unsigned int type;
     char sourceID[20];
     char destID[20];
     int length;
@@ -65,9 +65,10 @@ void sendStartDraft();
 void sendExit();
 void replyPing(int pingID);
 
-void showDrafted();
+void showDrafted(bool checkServer);
+void showTeam(char *owner);
 
-int sockfd, sleepTime;
+int sockfd, sleepTime, roundLength;
 int myMsgID = 0;
 bool connected;
 bool draftJustStarted = false;
@@ -186,7 +187,7 @@ int main(int argc, char *argv[]) {
                 	if(message == 0) {
             	        sendMessage();
             	    } else if (message == 1) {
-                        showDrafted();
+                        showDrafted(true);
                     } else if (message == 2) {
                         sendStartDraft();
                     } else if (message == 3) {
@@ -343,19 +344,18 @@ void sendMessage() {
         while(lastReadWasPing) readMessage();
     }
     if(type == DRAFT_REQUEST) {
-        showDrafted();
+        showDrafted(true);
     }
 }
 
 void readMessage() {
     char headerBuffer[50];
-    int total = 50;
+    int total = sizeof(header);
     int received = 0;
     int bytes;
 
     memset(headerBuffer,0,sizeof(headerBuffer));
-    if(!draftJustStarted) usleep(sleepTime);
-    draftJustStarted = false;
+    usleep(sleepTime);
     while(received < total) {
         bytes = read(sockfd,headerBuffer+received,total-received);
         if(bytes < 0) error("ERROR reading header from socket\n");
@@ -368,7 +368,7 @@ void readMessage() {
     }
 
     struct header headerToRead;
-    memcpy((char *)&headerToRead, &headerBuffer[0], 50);
+    memcpy((char *)&headerToRead, &headerBuffer[0], sizeof(headerToRead));
     headerToRead.type = ntohs(headerToRead.type);
     headerToRead.length = ntohl(headerToRead.length);
     headerToRead.msgID = ntohl(headerToRead.msgID);
@@ -434,8 +434,9 @@ void readMessage() {
         if(headerToRead.type == DRAFT_STARTING) {
             draftInProgress = true;
             draftJustStarted = true;
+            roundLength = headerToRead.msgID;
             fprintf(stdout, "%s\n", dataBuffer);
-            fprintf(stdout, "Each round will last %d seconds. Don't get left behind!\n", headerToRead.msgID);
+            fprintf(stdout, "Each round will last %d seconds. Don't get left behind!\n", roundLength);
 
         }
 
@@ -443,50 +444,76 @@ void readMessage() {
             //memcpy(curPlayer,dataBuffer,50);
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
             fprintf(stdout, "Press 0 to pass, 1 to attempt to claim!\n");
-            char ch; int input;
-            while(read(0,&ch,1) > 0) {
-                       if(ch == 10) {
-                           break;
+            fd_set stdin_set;
+
+            FD_ZERO(&stdin_set);
+            FD_SET(1,&stdin_set);
+
+            timeval timeout;
+            timeout.tv_sec = roundLength;
+            timeout.tv_usec = 0;
+
+            if(select(FD_SETSIZE, &stdin_set, NULL, NULL, &timeout) < 0) {
+                error("ERROR on select");
+            }
+
+            for(int i = 0; i < FD_SETSIZE; i++) {
+                if(FD_ISSET(i, &stdin_set)) {
+                    if(i == 1) { // iput on stdin
+
+                        char ch; int input;
+                        while(read(0,&ch,1) > 0) {
+                                   if(ch == 10) {
+                                       break;
+                                    } else {
+                                        input = ch - 48;
+                                    } 
+                        }
+
+                        struct header draftResponse;
+                        memset(&draftResponse,0,sizeof(draftResponse));
+                        if(input == 1) {
+                            draftResponse.type = htons(DRAFT_REQUEST);
                         } else {
-                            input = ch - 48;
-                        } 
-            }
+                            draftResponse.type = htons(DRAFT_PASS);
+                        }
+                        memcpy(draftResponse.sourceID,username,strlen(username));
+                        memcpy(draftResponse.destID,serv,strlen(serv));
+                        draftResponse.length = htonl(headerToRead.length);
+                        draftResponse.msgID = htonl(headerToRead.msgID);
 
-            struct header draftResponse;
-            memset(&draftResponse,0,sizeof(draftResponse));
-            if(input == 1) {
-                draftResponse.type = htons(DRAFT_REQUEST);
-            } else {
-                draftResponse.type = htons(DRAFT_PASS);
-            }
-            memcpy(draftResponse.sourceID,username,strlen(username));
-            memcpy(draftResponse.destID,serv,strlen(serv));
-            draftResponse.length = htonl(headerToRead.length);
-            draftResponse.msgID = htonl(headerToRead.msgID);
+                        int total = sizeof(draftResponse);
+                        int sent = 0;
+                        int bytes;
+                        usleep(sleepTime);
+                        do {
+                            bytes = write(sockfd,(char *)&draftResponse+sent,total-sent);
+                            if(bytes < 0) error("ERROR writing message to socket");
+                            if(bytes == 0) break;
+                            sent+=bytes;
+                        } while (sent < total);
 
-            int total = sizeof(draftResponse);
-            int sent = 0;
-            int bytes;
-            usleep(sleepTime);
-            do {
-                bytes = write(sockfd,(char *)&draftResponse+sent,total-sent);
-                if(bytes < 0) error("ERROR writing message to socket");
-                if(bytes == 0) break;
-                sent+=bytes;
-            } while (sent < total);
-
-            total = headerToRead.length;
-            sent = 0;
-            while(sent < total) {
-                bytes = write(sockfd, dataBuffer+sent, total-sent);
-                if(bytes < 0) error("ERROR writing password to socket");
-                if(bytes == 0) break;
-                sent+= bytes;
+                        total = headerToRead.length;
+                        sent = 0;
+                        while(sent < total) {
+                            bytes = write(sockfd, dataBuffer+sent, total-sent);
+                            if(bytes < 0) error("ERROR writing password to socket");
+                            if(bytes == 0) break;
+                            sent+= bytes;
+                        }
+                    }
+                }
             }
         }
 
-        if(headerToRead.type = DRAFT_ROUND_RESULT) {
-            
+        if(headerToRead.type == DRAFT_ROUND_RESULT) {
+            if(strlen(dataBuffer) == 0) {
+                fprintf(stdout, "No one won round %d of the draft\n", headerToRead.msgID+1);
+            } else {
+                fprintf(stdout, "%s won round %d of the draft\n", dataBuffer, headerToRead.msgID+1);
+                memcpy(playerData[headerToRead.msgID].owner, dataBuffer, headerToRead.length+1);
+                showTeam(dataBuffer);
+            }
         }
     }
 }
@@ -652,13 +679,23 @@ void replyPing(int pingID) {
     }
 }
 
-void showDrafted() {
+void showDrafted(bool checkServer) {
     cout << "\nAll drafted players: \n";
-    if(connected) sendPlayerRequest(true);
+    if(connected && checkServer) sendPlayerRequest(true);
     //usleep(500000);
     for(int i = 0; i < playerData.size(); i++) {
         if(strcmp(playerData[i].owner, "Server") != 0) {
             cout << playerToString(playerData[i]) << '\n';
+        }
+    }
+    cout << '\n';
+}
+
+void showTeam(char *owner) {
+    cout << "\nTeam " << owner << ":\n";
+    for(int i = 0; i < playerData.size(); i++) {
+        if(strcmp(playerData[i].owner, owner) == 0) {
+            cout << playerData[i].PLAYER_NAME << '\n';
         }
     }
     cout << '\n';
