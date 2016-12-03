@@ -388,6 +388,12 @@ void readMessage() {
         lastReadWasPing = false;
     }
 
+    if(headerToRead.type == DRAFT_END) {
+        fprintf(stderr, "Draft is over!\n");
+        draftInProgress = false;
+        showDrafted(false);
+    }
+    
     if(headerToRead.length > 0) {
 	    char dataBuffer[headerToRead.length+1];
     	memset(dataBuffer,0,sizeof(dataBuffer));
@@ -441,7 +447,7 @@ void readMessage() {
 
         }
 
-        if(headerToRead.type == DRAFT_ROUND_START) {
+        if(headerToRead.type == DRAFT_ROUND_START && draftInProgress) {
             //memcpy(curPlayer,dataBuffer,50);
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
             int index;
@@ -456,6 +462,8 @@ void readMessage() {
                 playerData[index].TEAM_ABBREVIATION,playerData[index].AGE,playerData[index].FG_PCT*100,playerData[index].OFF_RATING,playerData[index].DEF_RATING,playerData[index].MIN);
             fprintf(stdout, "Press 0 to pass, 1 to attempt to claim!\n");
             fd_set stdin_set;
+
+            bool madeClaim = false;
 
             FD_ZERO(&stdin_set);
             FD_SET(1,&stdin_set);
@@ -480,6 +488,8 @@ void readMessage() {
                                         input = ch - 48;
                                     } 
                         }
+
+                        madeClaim = true;
 
                         struct header draftResponse;
                         memset(&draftResponse,0,sizeof(draftResponse));
@@ -515,11 +525,16 @@ void readMessage() {
                     }
                 }
             }
+            if(madeClaim) {
+                fprintf(stderr, "Please wait while other players respond\n\n");
+            } else {
+                fprintf(stderr, "You opportunity to claim %s has passed!\n\n", dataBuffer);
+            }
         }
 
         if(headerToRead.type == DRAFT_ROUND_RESULT) {
             if(strlen(dataBuffer) == 0) {
-                fprintf(stdout, "No one won round %d of the draft\n", headerToRead.msgID+1);
+                fprintf(stdout, "No one won round %d of the draft\n\n", headerToRead.msgID+1);
             } else {
                 fprintf(stdout, "%s won round %d of the draft\n", dataBuffer, headerToRead.msgID+1);
                 memcpy(playerData[headerToRead.msgID].owner, dataBuffer, headerToRead.length+1);

@@ -150,6 +150,7 @@ void handlePingResponse(struct clientInfo *curClient);
 
 void sendPing(struct clientInfo *curClient);
 void sendStartDraft();
+void endDraft();
 
 void draftNewRound();
 void endDraftRound();
@@ -1183,6 +1184,8 @@ string sha256(const string str) {
 void draftNewRound() {
     theDraft.currentRound++;
     theDraft.index = theDraft.currentRound - 1;
+    theDraft.index = theDraft.index % playerData.size();
+
 	char curPlayer[50];
 	memset(curPlayer,0,50);
 	memcpy(curPlayer,playerData[theDraft.index].PLAYER_NAME,50);
@@ -1309,9 +1312,52 @@ void endDraftRound() {
 		}
 	}
 	//fprintf(stderr, "End of endDraftRound\n");
+	bool teamsFull = true;
+	for(int i = 0; i < theDraft.teams.size(); i++) {
+		if(theDraft.teams[i].playersDrafted != TEAMSIZE) {
+			teamsFull = false;
+			break;
+		}
+	}
 
-	usleep(maxDelay * 2000);
-	draftNewRound();
+	if(teamsFull) {
+		endDraft();
+	} else {
+		usleep(maxDelay * 2000);
+		draftNewRound();
+	}
+}
+
+void endDraft() {
+	draftStarted = false;
+
+    struct header responseHeader;
+    responseHeader.type = htons(DRAFT_END);
+    strcpy(responseHeader.sourceID, "Server");
+    responseHeader.dataLength = htonl(0);
+    responseHeader.msgID = htonl(0);
+
+	for(int i = 0; i < MAXCLIENTS; i++) {
+		if(clients[i].active) {
+
+		    memcpy(responseHeader.destID, clients[i].ID, IDLENGTH);
+		    clients[i].readyToDraft = false;
+
+		    int bytes, sent, total;
+		    total = HEADERSIZE; sent = 0;
+		    do {
+				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
+				if(bytes < 0) error("ERROR writing to socket");
+				if(bytes == 0) break;
+				sent+=bytes;
+		    } while (sent < total);			
+		}
+	}
+
+	for(int i = 0; i < playerData.size(); i++) {
+		memset(playerData[i].owner,0,IDLENGTH);
+		strcpy(playerData[i].owner,"Server");
+	}
 }
 
 void timespecAdd(timespec *a, timespec *b, timespec *c) {
