@@ -40,6 +40,8 @@
 #define DRAFT_END 20
 
 #define IDLENGTH 20
+#define PARTICIPATING_MASK 256
+#define ROUNDLENGTH_MASK 255
 
 struct header {
     unsigned short type;
@@ -70,6 +72,7 @@ void replyPing(int pingID);
 
 void showDrafted(bool checkServer);
 void showTeam(char *owner);
+void outputResults(int draftNum);
 
 int sockfd, sleepTime, roundLength;
 int myMsgID = 0;
@@ -84,6 +87,8 @@ char serv[IDLENGTH] = "Server";
 
 bool lastReadWasPing = false;
 bool draftInProgress = false;
+bool particpatingInDraft = false;
+
 int curDraftIndex;
 bool requestQuietly;
 fd_set active_fd_set, read_fd_set;
@@ -405,7 +410,10 @@ void readMessage() {
     if(headerToRead.type == DRAFT_END) {
         fprintf(stderr, "Draft is over!\n");
         draftInProgress = false;
-        showDrafted(false);
+        roundLength = 0;
+        particpatingInDraft = false;
+        //showDrafted(false);
+        outputResults(headerToRead.msgID);
     }
     
     if(headerToRead.length > 0) {
@@ -464,9 +472,11 @@ void readMessage() {
         if(headerToRead.type == DRAFT_STARTING) {
             draftInProgress = true;
             draftJustStarted = true;
-            roundLength = headerToRead.msgID;
+
+            if((PARTICIPATING_MASK & headerToRead.msgID) != 0) particpatingInDraft = true;
+            roundLength = (ROUNDLENGTH_MASK & headerToRead.msgID);
             fprintf(stdout, "%s\n", dataBuffer);
-            fprintf(stdout, "Each round will last %d seconds. Don't get left behind!\n", roundLength);
+            if(particpatingInDraft) fprintf(stdout, "Each round will last %d seconds. Don't get left behind!\n", roundLength);
 
         }
 
@@ -485,6 +495,8 @@ void readMessage() {
                     break;
                 }
             }
+
+            if(!particpatingInDraft) return;
 
             fprintf(stdout, "Stats: Team: %s, Age: %d, FG PCT: %3.1f, O-Rating: %4.1f, D-Rating: %4.1f, Min/G: %3.1f\n", 
                 playerData[curDraftIndex].TEAM_ABBREVIATION,playerData[curDraftIndex].AGE,playerData[curDraftIndex].FG_PCT*100,playerData[curDraftIndex].OFF_RATING,playerData[curDraftIndex].DEF_RATING,playerData[curDraftIndex].MIN);
@@ -759,4 +771,42 @@ void showTeam(char *owner) {
         }
     }
     cout << '\n';
+}
+
+void outputResults(int draftNum) {
+    vector<string> teamNames;
+    vector<vector<playerInfo>> teams;
+    for(int i = 0; i < playerData.size(); i++) {
+        if((strcmp(playerData[i].owner,serv) != 0) && (strcmp(playerData[i].owner,"QUITTER") != 0)) {
+            bool isNew = true;
+            int j;
+            for(j = 0; j < teamNames.size(); j++) {
+                if(strcmp(teamNames[j].c_str(),playerData[i].owner) == 0) {
+                    isNew = false;
+                    break;
+                }
+            }
+            if(isNew) {
+                teamNames.push_back(playerData[i].owner);
+                vector<playerInfo> newPlayerVector;
+                teams.push_back(newPlayerVector);
+            }
+            teams[j].push_back(playerData[i]);
+        }
+    }
+
+    string filename = "draftresults_" + to_string(draftNum) + ".txt";
+    ofstream outputFile(filename);
+
+    outputFile << "Draft " << to_string(draftNum) << " results:\n\n";
+    for(int i = 0; i < teamNames.size(); i++) {
+        outputFile << "Team " << teamNames[i] << '\n';
+        for(int j = 0; j < teams[i].size(); j++) {
+            outputFile << to_string(j + 1) << ". " << teams[i][j].PLAYER_NAME << '\n';
+        }
+
+        outputFile << '\n';
+    }
+
+    cout << "Draft results saved to " << filename << "\n";
 }

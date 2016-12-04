@@ -97,14 +97,16 @@ vector<playerInfo> readCSV(string filename) {
 string playerToString(playerInfo player) {
 	stringstream ss;
 	string s = player.PLAYER_NAME;	s += ", ";	s += player.TEAM_ABBREVIATION;
-	s += ", Age: "; s += to_string(player.AGE);
-	s += ", Wins: "; s += to_string(player.W);
-	ss << fixed << setprecision(1) << player.OFF_RATING;
-	s += ", Offensive rating: "; s += ss.str(); ss.str(string());
-	ss << fixed << setprecision(1) << player.DEF_RATING;
-	s += ", Defensive rating "; s += ss.str();
+	//s += ", Age: "; s += to_string(player.AGE);
+	//s += ", Wins: "; s += to_string(player.W);
+	//ss << fixed << setprecision(1) << player.OFF_RATING;
+	//s += ", Offensive rating: "; s += ss.str(); ss.str(string());
+	//ss << fixed << setprecision(1) << player.DEF_RATING;
+	//s += ", Defensive rating "; s += ss.str();
 	if(strcmp(player.owner,"Server") != 0) {
 		s += " >> Owned by: ";  s+= player.owner;
+	} else {
+		s += " >> UNOWNED";
 	}
 
 	return s;

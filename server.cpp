@@ -32,7 +32,8 @@ using namespace std;
 #define MAXCLIENTS 200
 #define IDLENGTH 20 // Includes null character
 #define TEAMSIZE 12
-#define ROUNDTIME 10
+#define ROUNDTIME 10 // Max of 255
+#define PARTICIPATING_MASK 256
 
 #define HELLO 1
 #define HELLO_ACK 2
@@ -117,6 +118,7 @@ struct clientInfo clients[MAXCLIENTS];
 int clientCounter = 0;
 int numClients = 0;
 int maxDelay = 0;
+int draftNum = 0;
 bool pingNow = false;
 bool draftStarted;
 struct draftInfo theDraft;
@@ -680,7 +682,7 @@ void handleHello(struct clientInfo *curClient) {
 	    responseHeader.type = htons(DRAFT_STARTING);
 	    strcpy(responseHeader.destID, curClient->ID);
 	    strcpy(responseHeader.sourceID, "Server");
-	    responseHeader.msgID = htonl(ROUNDTIME);
+	    responseHeader.msgID = htonl(ROUNDTIME | PARTICIPATING_MASK);
 
 	    string s;
     	s = "Welcome back to the draft! Round "; s += to_string(theDraft.index+1); s += " is underway.\n";
@@ -708,6 +710,42 @@ void handleHello(struct clientInfo *curClient) {
 	        if(bytes == 0) break;
 	        sent+= bytes;
 	    }
+    }
+
+    if(draftStarted && !curClient->readyToDraft) {
+	   	struct header responseHeader;
+		memset(&responseHeader,0,sizeof(responseHeader));
+	    responseHeader.type = htons(DRAFT_STARTING);
+	    strcpy(responseHeader.destID, curClient->ID);
+	    strcpy(responseHeader.sourceID, "Server");
+	    responseHeader.msgID = htonl(ROUNDTIME);
+
+	    string s;
+    	s = "Round "; s += to_string(theDraft.index+1); s += " of the draft is underway. Feel free to watch the results!\n";
+
+	   	char stringBuffer[s.length() + 1];
+		strcpy(stringBuffer, s.c_str());
+		stringBuffer[s.length()] = '\0';
+
+	    responseHeader.dataLength = htonl(s.length() + 1);
+
+        int bytes, sent, total;
+	    total = HEADERSIZE; sent = 0;	
+	    do {
+			bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
+			if(bytes < 0) error("ERROR writing to socket");
+			if(bytes == 0) break;
+			sent+=bytes;
+	    } while (sent < total);
+
+	    total = strlen(stringBuffer) + 1;	
+		sent = 0;
+		while(sent < total) {
+	        bytes = write(curClient->sock, stringBuffer+sent, total-sent);
+	        if(bytes < 0) error("ERROR writing to socket");
+	        if(bytes == 0) break;
+	        sent+= bytes;
+	    }    	
     }
 }
 
@@ -852,6 +890,20 @@ void handleExit(struct clientInfo *curClient) {
 						}
 					}
 				}
+				if(!curClient->validated && draftStarted) {
+					for(int i = 0; i < playerData.size(); i++) {
+						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
+							memset(playerData[i].owner,0,IDLENGTH);
+							strcpy(playerData[i].owner,"QUITTER");
+						}
+					}
+					for(int i = 0; i < theDraft.teams.size(); i++) {
+						if(strcmp(curClient->ID,theDraft.teams[i].owner) == 0) {
+							memset(theDraft.teams[i].owner,0,IDLENGTH);
+							strcpy(theDraft.teams[i].owner,"QUITTER");
+						}
+					}
+				}
 			    fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,curClient->sock);
 			    memset(curClient, 0, sizeof(curClient));
 			}
@@ -860,9 +912,13 @@ void handleExit(struct clientInfo *curClient) {
 	}
 
 	maxDelay = 0;
-		for(int i = 0; i < MAXCLIENTS; i++) {
-			if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
-		}
+	bool startDraft = true;
+	for(int i = 0; i < MAXCLIENTS; i++) {
+		if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
+		if(clients[i].active && !clients[i].readyToDraft) startDraft = false;
+	}
+	if(startDraft) sendStartDraft();
+
 }
 
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
@@ -1143,10 +1199,10 @@ void sendStartDraft() {
 	memset(&responseHeader,0,sizeof(responseHeader));
     responseHeader.type = htons(DRAFT_STARTING);
     strcpy(responseHeader.sourceID, "Server");
-    responseHeader.msgID = htonl(ROUNDTIME);
+    responseHeader.msgID = htonl(ROUNDTIME | PARTICIPATING_MASK);
 
     string s;
-    s = "The draft is now starting with "; s += to_string(clientCounter); s += " clients!";
+    s = "The draft is now starting with "; s += to_string(numClients); s += " clients!";
 
    	char stringBuffer[s.length() + 1];
 	strcpy(stringBuffer, s.c_str());
@@ -1192,6 +1248,7 @@ void sendStartDraft() {
     }
 
     random_shuffle(theDraft.order.begin(), theDraft.order.end());
+    draftNum++;
    	draftNewRound();
 }
 
@@ -1410,7 +1467,7 @@ void endDraft() {
     responseHeader.type = htons(DRAFT_END);
     strcpy(responseHeader.sourceID, "Server");
     responseHeader.dataLength = htonl(0);
-    responseHeader.msgID = htonl(0);
+    responseHeader.msgID = htonl(draftNum);
 
 	for(int i = 0; i < MAXCLIENTS; i++) {
 		if(clients[i].active) {
