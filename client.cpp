@@ -39,10 +39,12 @@
 #define DRAFT_PASS 19
 #define DRAFT_END 20
 
+#define IDLENGTH 20
+
 struct header {
     unsigned short type;
-    char sourceID[20];
-    char destID[20];
+    char sourceID[IDLENGTH];
+    char destID[IDLENGTH];
     int length;
     int msgID;
 }__attribute__((packed, aligned(1)));
@@ -75,20 +77,21 @@ bool connected;
 bool draftJustStarted = false;
 
 vector<playerInfo> playerData;
-char username[20];
-char pword[20];
-char serv[20] = "Server";
+char username[IDLENGTH];
+char pword[IDLENGTH];
+char serv[IDLENGTH] = "Server";
 //char curPlayer[50];
 
 bool lastReadWasPing = false;
 bool draftInProgress = false;
+int curDraftIndex;
 bool requestQuietly;
 fd_set active_fd_set, read_fd_set;
 
 int main(int argc, char *argv[]) {
     if(argc != 3) {
-	fprintf(stdout, "Usage: ./client comp112-0x.cs.tufts.edu <port>\n");
-	return 1;
+    fprintf(stdout, "Usage: ./client comp112-0x.cs.tufts.edu <port>\n");
+    return 1;
     }
     fprintf(stdout, "Welcome to Bernie and Shawyoun's final project!\n\n");
 
@@ -161,9 +164,9 @@ int main(int argc, char *argv[]) {
     bool exiting = false;
     bool printMessage = true;
     while(!exiting) {
-    	char ch = '\0'; int i = 0; int message = -1;
+        char ch = '\0'; int i = 0; int message = -1;
         if(printMessage) {
-        	fprintf(stdout, "Type 0 to send a message, 1 to see all drafted players, 2 to toggle draft readiness, 3 to log out, or 4 to quit permanently\n");
+            fprintf(stdout, "Type 0 to send a message, 1 to see all drafted players, 2 to toggle draft readiness, 3 to log out, or 4 to quit permanently\n");
         }
 
         read_fd_set = active_fd_set;
@@ -175,28 +178,38 @@ int main(int argc, char *argv[]) {
         for(int i = 0; i < FD_SETSIZE; i++) {
             if(FD_ISSET(i, &read_fd_set)) {
                 if(i == 1) { // iput on stdin
-                	while(read(0,&ch,1) > 0) {
-            	       if(ch == 10) {
-            	           break;
-                	    } else {
-                    	   	message = ch - 48;
-            	        } 
-                	}
+                    while(read(0,&ch,1) > 0) {
+                       if(ch == 10) {
+                           break;
+                        } else {
+                            message = ch - 48;
+                        } 
+                    }
 
                     printMessage = true;
 
-                	if(message == 0) {
-            	        sendMessage();
-            	    } else if (message == 1) {
+                    if(message == 0) {
+                        sendMessage();
+                    } else if (message == 1) {
                         showDrafted(true);
                     } else if (message == 2) {
                         sendStartDraft();
                     } else if (message == 3) {
-                	    //sendExit();
+                        if(roundLength > 0) {
+                            fprintf(stdout, "Shutting down, will logout in %d seconds for the sake of the server\n", roundLength + 1);
+                            sleep(roundLength + 1);
+                        }
+                        //sendExit();
                         exiting = true;
                         break;
-                	} else if (message == 4) {
+                    } else if (message == 4) {
                         sendExit();
+
+                        if(roundLength > 0) {
+                            fprintf(stdout, "Shutting down, will quit in %d seconds for the sake of the server\n", roundLength + 1);
+                            sleep(roundLength + 1);
+                        }
+
                         exiting = true;
                         break;
                     }
@@ -216,8 +229,9 @@ int main(int argc, char *argv[]) {
         }
 
     }
-    fprintf(stdout, "Quitting! Have a nice day\n");
-    close(sockfd);
+    fprintf(stdout, "Signed off! Have a nice day\n");
+    //sleep(roundLength);
+    //close(sockfd);
 
     return 0;
 }
@@ -231,9 +245,9 @@ void sendMessage() {
     memset(buffer,0,sizeof(buffer));
     fprintf(stdout, "What to send now?\n3 = LIST_REQUEST, 5 = CHAT, 9 = PLAYER_REQUEST, 11 = DRAFT_REQUEST \n");
     while(read(0,&ch,1) > 0){
-    	if(ch == 10) break;
-	    buffer[i] = (ch - 48);
-    	i++;
+        if(ch == 10) break;
+        buffer[i] = (ch - 48);
+        i++;
     }
     short type = 0;
     for(int j = 0; j < i; j++) {
@@ -262,9 +276,9 @@ void sendMessage() {
     if(headerToSend.type == CHAT) {
         fprintf(stdout, "What is the destID?\n");
         while(read(0,&ch,1) > 0) {
-        	if(ch == 10) break;
-        	buffer[i] = ch;
-        	i++;
+            if(ch == 10) break;
+            buffer[i] = ch;
+            i++;
         }
     } else {
         strcpy(buffer, "Server");
@@ -320,23 +334,23 @@ void sendMessage() {
     int bytes;
     usleep(sleepTime);
     do {
-    	bytes = write(sockfd,(char *)&headerToSend+sent,total-sent);
-    	if(bytes < 0) error("ERROR writing message to socket");
-    	if(bytes == 0) break;
-    	sent+=bytes;
-	   //fprintf(stdout,"Sent %d bytes of the header\n",sent);
+        bytes = write(sockfd,(char *)&headerToSend+sent,total-sent);
+        if(bytes < 0) error("ERROR writing message to socket");
+        if(bytes == 0) break;
+        sent+=bytes;
+       //fprintf(stdout,"Sent %d bytes of the header\n",sent);
     } while (sent < total);
 
     if(i > 1) {
         total = i;
         sent = 0;
-	    while(sent < total) {
-	        bytes = write(sockfd, buffer+sent, total-sent);
-    	    if(bytes < 0) error("ERROR writing message to socket");
-	        if(bytes == 0) break;
-    	    sent+= bytes;
-	        //fprintf(stdout,"Sent %d bytes of the message body\n")
-    	}
+        while(sent < total) {
+            bytes = write(sockfd, buffer+sent, total-sent);
+            if(bytes < 0) error("ERROR writing message to socket");
+            if(bytes == 0) break;
+            sent+= bytes;
+            //fprintf(stdout,"Sent %d bytes of the message body\n")
+        }
     }
 
     fprintf(stdout, "Sent!\n");
@@ -360,12 +374,12 @@ void readMessage() {
     while(received < total) {
         bytes = read(sockfd,headerBuffer+received,total-received);
         if(bytes < 0) error("ERROR reading header from socket\n");
-    	if(bytes == 0) {
+        if(bytes == 0) {
             fprintf(stdout, "Server disconnected!\n");
             connected = false;
             return;
         }
-    	received+=bytes;
+        received+=bytes;
     }
 
     struct header headerToRead;
@@ -375,7 +389,7 @@ void readMessage() {
     headerToRead.msgID = ntohl(headerToRead.msgID);
 
     //fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
-	if(headerToRead.type == ERROR) {
+    if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
         return;
     }
@@ -395,26 +409,35 @@ void readMessage() {
     }
     
     if(headerToRead.length > 0) {
-	    char dataBuffer[headerToRead.length+1];
-    	memset(dataBuffer,0,sizeof(dataBuffer));
-    	total = headerToRead.length;
-    	received = 0;
-    	while(received < total) {
-    	    bytes = read(sockfd,dataBuffer+received,total-received);
-    	    if(bytes < 0) error("ERROR reading data from socket\n");
-    	    if(bytes == 0) break;
-    	    received+=bytes;
+        char dataBuffer[headerToRead.length+1];
+        memset(dataBuffer,0,sizeof(dataBuffer));
+        total = headerToRead.length;
+        received = 0;
+        while(received < total) {
+            bytes = read(sockfd,dataBuffer+received,total-received);
+            if(bytes < 0) error("ERROR reading data from socket\n");
+            if(bytes == 0) break;
+            received+=bytes;
             // fprintf(stderr, "Recieved %d bytes of the data body\n", received);
-	    }
+        }
         
         if(headerToRead.type == CHAT) {
-        	for(int i = 0; i < headerToRead.length; i++) {
-        	    if(dataBuffer[i] == 0) dataBuffer[i] = 32;
-	        }
-        	fprintf(stdout,"Message from %s:\n%s\n",headerToRead.sourceID,dataBuffer);
+            for(int i = 0; i < headerToRead.length; i++) {
+                if(dataBuffer[i] == 0) dataBuffer[i] = 32;
+            }
+            fprintf(stdout,"Message from %s:\n%s\n",headerToRead.sourceID,dataBuffer);
         }
 
-        if(headerToRead.type == HELLO_ACK || headerToRead.type == DRAFT_STATUS) {
+        if(headerToRead.type == HELLO_ACK) {
+            if(headerToRead.msgID == 1) {
+                draftInProgress = true;
+            } else {
+                draftInProgress = false;
+            }
+            fprintf(stdout, "%s\n", dataBuffer);
+        }
+
+        if(headerToRead.type == DRAFT_STATUS) {
             fprintf(stdout, "%s\n", dataBuffer);
         }
 
@@ -449,17 +472,22 @@ void readMessage() {
 
         if(headerToRead.type == DRAFT_ROUND_START && draftInProgress) {
             //memcpy(curPlayer,dataBuffer,50);
+            if(headerToRead.msgID == 1) {
+                for(int i = 0; i < playerData.size(); i++) {
+                    memset(playerData[i].owner,0,IDLENGTH);
+                    strcpy(playerData[i].owner,serv);
+                }
+            }
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
-            int index;
             for(int i = 0; i < playerData.size(); i++) {
                 if(strcmp(playerData[i].PLAYER_NAME, dataBuffer) == 0) {
-                    index = i;
+                    curDraftIndex = i;
                     break;
                 }
             }
 
             fprintf(stdout, "Stats: Team: %s, Age: %d, FG PCT: %3.1f, O-Rating: %4.1f, D-Rating: %4.1f, Min/G: %3.1f\n", 
-                playerData[index].TEAM_ABBREVIATION,playerData[index].AGE,playerData[index].FG_PCT*100,playerData[index].OFF_RATING,playerData[index].DEF_RATING,playerData[index].MIN);
+                playerData[curDraftIndex].TEAM_ABBREVIATION,playerData[curDraftIndex].AGE,playerData[curDraftIndex].FG_PCT*100,playerData[curDraftIndex].OFF_RATING,playerData[curDraftIndex].DEF_RATING,playerData[curDraftIndex].MIN);
             fprintf(stdout, "Press 0 to pass, 1 to attempt to claim!\n");
             fd_set stdin_set;
 
@@ -537,7 +565,7 @@ void readMessage() {
                 fprintf(stdout, "No one won round %d of the draft\n\n", headerToRead.msgID+1);
             } else {
                 fprintf(stdout, "%s won round %d of the draft\n", dataBuffer, headerToRead.msgID+1);
-                memcpy(playerData[headerToRead.msgID].owner, dataBuffer, headerToRead.length+1);
+                memcpy(playerData[curDraftIndex].owner, dataBuffer, headerToRead.length+1);
                 showTeam(dataBuffer);
             }
         }
@@ -718,10 +746,16 @@ void showDrafted(bool checkServer) {
 }
 
 void showTeam(char *owner) {
+    int playerNumber = 1;
     cout << "\nTeam " << owner << ":\n";
     for(int i = 0; i < playerData.size(); i++) {
         if(strcmp(playerData[i].owner, owner) == 0) {
-            cout << playerData[i].PLAYER_NAME << '\n';
+            cout << playerNumber << ". ";
+            if(i == curDraftIndex) cout << '*';
+            cout << playerData[i].PLAYER_NAME;
+            if(i == curDraftIndex) cout << '*';
+            cout << '\n';
+            playerNumber++;
         }
     }
     cout << '\n';

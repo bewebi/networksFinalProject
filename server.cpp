@@ -23,6 +23,8 @@
 #include "player.h"
 #include <openssl/sha.h>
 #include <time.h>
+#include <algorithm>
+#include <random>
 
 using namespace std;
 
@@ -52,6 +54,7 @@ using namespace std;
 #define DRAFT_ROUND_RESULT 18
 #define DRAFT_PASS 19
 #define DRAFT_END 20
+
 
 struct header {
     unsigned short type;
@@ -107,6 +110,7 @@ struct draftInfo {
 	int currentRound;
 	timespec roundEndTime;
 	vector<team> teams;
+	vector<int> order;
 };
 
 struct clientInfo clients[MAXCLIENTS];
@@ -165,6 +169,8 @@ fd_set active_fd_set, read_fd_set; // Declared here so all functions can use
 
 int main(int argc, char *argv[])
 {
+	srand(unsigned (time(0)));
+
 	// TODO: Give more options than this hard coded file
 	playerData = readCSV("nba1516.csv");
 	//for(int i = 0; i < playerData.size(); i++) {
@@ -604,6 +610,8 @@ void handleHello(struct clientInfo *curClient) {
 				//	clients[i].ID,clients[i].sock,curClient->ID,curClient->sock);
 				if(strcmp(clients[i].pword, curClient->pword) == 0) {
 					//fprintf(stderr, "Password matches password of existing client, removing duplicate\n");
+					curClient->validated = true;
+					curClient->readyToDraft = clients[i].readyToDraft;
 					handleError(&clients[i]);
 				} else {
 					//fprintf(stderr, "Password does not match existing client! You're fired!\n");
@@ -633,7 +641,11 @@ void handleHello(struct clientInfo *curClient) {
     strcpy(responseHeader.sourceID, "Server");
     memcpy(responseHeader.destID, curClient->ID, IDLENGTH);
     responseHeader.dataLength = htonl(strlen(helloMessage) + 1);
-    responseHeader.msgID = htonl(0);
+    if(draftStarted && curClient->readyToDraft) {
+    	responseHeader.msgID = htonl(1);
+    } else {
+	    responseHeader.msgID = htonl(0);
+	}
 	
     //fprintf (stderr, "HELLO_ACK responseHeader: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", responseHeader.type, responseHeader.sourceID, responseHeader.destID, responseHeader.dataLength, responseHeader.msgID);
 
@@ -661,6 +673,42 @@ void handleHello(struct clientInfo *curClient) {
     //curClient->estRTT = 100;
     //curClient->pings = 50;
     sendPing(curClient);
+
+    if(draftStarted && curClient->readyToDraft) {
+    	struct header responseHeader;
+		memset(&responseHeader,0,sizeof(responseHeader));
+	    responseHeader.type = htons(DRAFT_STARTING);
+	    strcpy(responseHeader.destID, curClient->ID);
+	    strcpy(responseHeader.sourceID, "Server");
+	    responseHeader.msgID = htonl(ROUNDTIME);
+
+	    string s;
+    	s = "Welcome back to the draft! Round "; s += to_string(theDraft.index+1); s += " is underway.\n";
+
+	   	char stringBuffer[s.length() + 1];
+		strcpy(stringBuffer, s.c_str());
+		stringBuffer[s.length()] = '\0';
+
+	    responseHeader.dataLength = htonl(s.length() + 1);
+
+        int bytes, sent, total;
+	    total = HEADERSIZE; sent = 0;	
+	    do {
+			bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
+			if(bytes < 0) error("ERROR writing to socket");
+			if(bytes == 0) break;
+			sent+=bytes;
+	    } while (sent < total);
+
+	    total = strlen(stringBuffer) + 1;	
+		sent = 0;
+		while(sent < total) {
+	        bytes = write(curClient->sock, stringBuffer+sent, total-sent);
+	        if(bytes < 0) error("ERROR writing to socket");
+	        if(bytes == 0) break;
+	        sent+= bytes;
+	    }
+    }
 }
 
 void handleListRequest(struct clientInfo *curClient) {
@@ -706,10 +754,10 @@ void handleListRequest(struct clientInfo *curClient) {
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
     do {
-	bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
-	if(bytes < 0) error("ERROR writing to socket");
-	if(bytes == 0) break;
-	sent+=bytes;
+		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
+		if(bytes < 0) error("ERROR writing to socket");
+		if(bytes == 0) break;
+		sent+=bytes;
     } while (sent < total);
 
     /* send IDBuffer */
@@ -796,7 +844,7 @@ void handleExit(struct clientInfo *curClient) {
 	    for(int i = 0; i < MAXCLIENTS; i++) {
 	    	if(curClient->sock == 0) break;
 			if((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)) {
-				if(!curClient->validated) {
+				if(!curClient->validated && !draftStarted) {
 					for(int i = 0; i < playerData.size(); i++) {
 						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
 							memset(playerData[i].owner,0,IDLENGTH);
@@ -810,6 +858,11 @@ void handleExit(struct clientInfo *curClient) {
 	    }
 	    numClients--;
 	}
+
+	maxDelay = 0;
+		for(int i = 0; i < MAXCLIENTS; i++) {
+			if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
+		}
 }
 
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
@@ -933,10 +986,10 @@ void handleDraftRequest(clientInfo *curClient) {
 	//fprintf(stderr, "Recieved draft request from %s for %s\n", curClient->ID, curClient->partialData);
 	//playerInfo playerToDraft;
 	if(draftStarted) {
-		if(strcmp(playerData[theDraft.index].PLAYER_NAME,curClient->partialData) == 0) {
+		if(strcmp(playerData[theDraft.order[theDraft.index]].PLAYER_NAME,curClient->partialData) == 0) {
 			for(int i = 0; i < theDraft.teams.size(); i++) {
 				if(strcmp(theDraft.teams[i].owner,curClient->ID) == 0) {
-					fprintf(stderr, "Request from team with owner: %s\n", theDraft.teams[i].owner);
+					//fprintf(stderr, "Request from team with owner: %s\n", theDraft.teams[i].owner);
 					timespec adjustedTimeReceived;
 					clock_gettime(CLOCK_MONOTONIC,&theDraft.teams[i].adjustedTimeReceived);
 					//fprintf(stderr, "maxDelay - curClient->estRTT: %f\n", maxDelay - curClient->estRTT);
@@ -952,7 +1005,7 @@ void handleDraftRequest(clientInfo *curClient) {
 				}
 			}
 		} else {
-			fprintf(stderr, "Draft request for previous round recieved from %s\n", curClient->ID);
+			//fprintf(stderr, "Draft request for previous round recieved from %s\n", curClient->ID);
 		}
 	} else {
 //		fprintf(stderr, "Sleeping for %f milliseconds\n", (maxDelay - curClient->estRTT));
@@ -979,7 +1032,7 @@ void handleDraftRequest(clientInfo *curClient) {
 void handleDraftPass(clientInfo *curClient) {
 	//fprintf(stderr, "In handleDraftPass\n");
 	//fprintf(stderr, "Player to draft: %s, player recieved: %s\n", playerData[theDraft.index].PLAYER_NAME,curClient->partialData);
-	if(strcmp(playerData[theDraft.index].PLAYER_NAME,curClient->partialData) == 0) {
+	if(strcmp(playerData[theDraft.order[theDraft.index]].PLAYER_NAME,curClient->partialData) == 0) {
 		for(int i = 0; i < theDraft.teams.size(); i++) {
 			if(strcmp(theDraft.teams[i].owner,curClient->ID) == 0) {
 				theDraft.teams[i].responseRecieved = true;
@@ -1075,7 +1128,7 @@ void handleStartDraft(clientInfo *curClient) {
         sent+= bytes;
     }
 
-    if(totalClients == readyClients) {
+    if((totalClients == readyClients) && !draftStarted) {
     	usleep((int)maxDelay * 1000);
     	sendStartDraft();
     	draftStarted = true;
@@ -1132,6 +1185,13 @@ void sendStartDraft() {
     	}
     }
 
+    for(int i = 0; i < playerData.size(); i++) {
+    	memset(playerData[i].owner,0,IDLENGTH);
+    	strcpy(playerData[i].owner,"Server");
+    	theDraft.order.push_back(i);
+    }
+
+    random_shuffle(theDraft.order.begin(), theDraft.order.end());
    	draftNewRound();
 }
 
@@ -1157,8 +1217,9 @@ void handlePingResponse(clientInfo *curClient) {
 		curClient->timeout = max((curClient->estRTT + (4 * curClient->devRTT)), minTimeout);
 
 		//fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
-		if(curClient->timeout > maxDelay) {
-			maxDelay = curClient->timeout;
+		maxDelay = 0;
+		for(int i = 0; i < MAXCLIENTS; i++) {
+			if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
 		}
 	}
 
@@ -1188,7 +1249,7 @@ void draftNewRound() {
 
 	char curPlayer[50];
 	memset(curPlayer,0,50);
-	memcpy(curPlayer,playerData[theDraft.index].PLAYER_NAME,50);
+	memcpy(curPlayer,playerData[theDraft.order[theDraft.index]].PLAYER_NAME,50);
 
 	//fprintf(stderr, "curPlayer in draftNewRound: %s\n", curPlayer);
 	struct header responseHeader;
@@ -1266,21 +1327,21 @@ void endDraftRound() {
 	}
 
 	if(strcmp(winner, "") != 0) {
-		strcpy(playerData[theDraft.index].owner,winner);
+		strcpy(playerData[theDraft.order[theDraft.index]].owner,winner);
 		for(int i = 0; i < theDraft.teams.size(); i++) {
 			if(strcmp(theDraft.teams[i].owner,winner) == 0) {
-				theDraft.teams[i].players[theDraft.teams[i].playersDrafted] = playerData[theDraft.index];
+				theDraft.teams[i].players[theDraft.teams[i].playersDrafted] = playerData[theDraft.order[theDraft.index]];
 				theDraft.teams[i].playersDrafted++;
-				fprintf(stderr, "%s won %s in round %d of the draft\n", winner, playerData[theDraft.index].PLAYER_NAME, theDraft.currentRound);
+				fprintf(stderr, "%s won %s in round %d of the draft\n", winner, playerData[theDraft.order[theDraft.index]].PLAYER_NAME, theDraft.currentRound);
 				//fprintf(stderr, "The owner of %s is now %s\n",playerData[theDraft.index].PLAYER_NAME,playerData[theDraft.index].owner);
-				fprintf(stderr, "Team %s: \n", winner);
-				for(int j = 0; j < theDraft.teams[i].playersDrafted; j++) {
-					fprintf(stderr, "Player %d: %s\n", j+1, theDraft.teams[i].players[j].PLAYER_NAME);
-				}
+				//fprintf(stderr, "Team %s: \n", winner);
+				//for(int j = 0; j < theDraft.teams[i].playersDrafted; j++) {
+				//	fprintf(stderr, "Player %d: %s\n", j+1, theDraft.teams[i].players[j].PLAYER_NAME);
+				//}
 			}
 		}
 	} else {
-		fprintf(stderr, "No one claimed %s in round %d of the draft\n", playerData[theDraft.index].PLAYER_NAME, theDraft.currentRound);
+		fprintf(stderr, "No one claimed %s in round %d of the draft\n", playerData[theDraft.order[theDraft.index]].PLAYER_NAME, theDraft.currentRound);
 	}
 
     struct header responseHeader;
@@ -1312,15 +1373,29 @@ void endDraftRound() {
 		}
 	}
 	//fprintf(stderr, "End of endDraftRound\n");
-	bool teamsFull = true;
+	bool readyToEnd = true;
 	for(int i = 0; i < theDraft.teams.size(); i++) {
+		//fprintf(stderr, "Check end loop i: %d\n", i);
 		if(theDraft.teams[i].playersDrafted != TEAMSIZE) {
-			teamsFull = false;
-			break;
+			//fprintf(stderr, "Team %s is not full\n", theDraft.teams[i].owner);
+			bool foundAndActive = false;
+			for(int j = 0; j < MAXCLIENTS; j++) {
+				if(strcmp(clients[j].ID,theDraft.teams[i].owner) == 0) {
+					if(clients[j].active) {
+						//fprintf(stderr, "%s is found and active\n", clients[j].ID);
+						foundAndActive = true;
+					}
+				}
+			}
+			if(foundAndActive) {
+				readyToEnd = false;
+				break;
+			}
 		}
 	}
 
-	if(teamsFull) {
+	if(readyToEnd) {
+		fprintf(stderr, "Going to end the draft now\n");
 		endDraft();
 	} else {
 		usleep(maxDelay * 2000);
@@ -1380,7 +1455,12 @@ bool roundIsOver() {
 	//fprintf(stderr, "In roundIsOver\n");
 	bool allResponsesRecieved = true;
 	for(int i = 0; i < theDraft.teams.size(); i++) {
-		if(!theDraft.teams[i].responseRecieved) allResponsesRecieved = false;
+		if(!theDraft.teams[i].responseRecieved) 
+			for(int j = 0; j < MAXCLIENTS; j++) {
+				if(strcmp(clients[j].ID,theDraft.teams[i].owner) == 0) {
+					if(clients[j].active) allResponsesRecieved = false;
+				}
+			}
 	}
 	return allResponsesRecieved;
 }
