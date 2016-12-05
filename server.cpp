@@ -116,11 +116,12 @@ struct draftInfo {
 
 struct clientInfo clients[MAXCLIENTS];
 int clientCounter = 0;
-int numClients = 0;
+int numClients = 0; int numActiveClients = 0;
 int maxDelay = 0;
 int draftNum = 0;
 bool pingNow = false;
 bool draftStarted;
+bool startnewRound = false;
 struct draftInfo theDraft;
 
 vector<playerInfo> playerData;
@@ -222,10 +223,12 @@ int main(int argc, char *argv[])
     		}
     	}
 
-    	if(pingNow) {
+    	if(pingNow && !startnewRound) {
 			for(int i = 0; i < MAXCLIENTS; i++) {
-				if(clients[i].active) {
-					sendPing(&clients[i]);
+				if(clients[i].active && clients[i].validated) {
+					if(!draftStarted || (clients[i].pings < 5)) {
+						sendPing(&clients[i]);
+					}
 				}
 			}
 		}
@@ -268,6 +271,7 @@ int main(int argc, char *argv[])
 						}
 					 	clientCounter++;
 					 	numClients++;
+					 	numActiveClients++;
 						clientCounter = clientCounter % MAXCLIENTS;
 				    }
 		    		fprintf(stderr, "New connection with newsockfd: %d\n", newsockfd);
@@ -281,6 +285,8 @@ int main(int argc, char *argv[])
 				}
 	    	}
 		}
+
+		if(startnewRound) draftNewRound();
     }
     close(sockfd); 
     return 0; 
@@ -312,6 +318,7 @@ void readFromClient (int sockfd) {
 					    	inserted = 1;
 					 	}
 						clientCounter++;
+						numActiveClients++;
 						clientCounter = clientCounter % MAXCLIENTS;
 		     		}
 		    //fprintf(stderr, "New client made with previously existing sockfd: %d\n", sockfd);
@@ -494,6 +501,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 		    /* No need to check for errors, 
                we're kicking the client out anyway! */
 			curClient->active = false;
+			numActiveClients--;
 			curClient->validated = false;
 		    handleExit(curClient);
 		} else if(newHeader.type == PLAYER_REQUEST) {
@@ -654,6 +662,7 @@ void handleHello(struct clientInfo *curClient) {
     /* send HELLO_ACK */
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "handleHello: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
     do {
 		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 		if(bytes < 0) error("ERROR writing to socket");
@@ -695,6 +704,7 @@ void handleHello(struct clientInfo *curClient) {
 
         int bytes, sent, total;
 	    total = HEADERSIZE; sent = 0;	
+	    fprintf(stderr, "handleHello (draftStarted): Writing to %s with sock %d\n", curClient->ID,curClient->sock);
 	    do {
 			bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 			if(bytes < 0) error("ERROR writing to socket");
@@ -731,6 +741,7 @@ void handleHello(struct clientInfo *curClient) {
 
         int bytes, sent, total;
 	    total = HEADERSIZE; sent = 0;	
+	    fprintf(stderr, "handleHello (draftStarted, client not read): Writing to %s with sock %d\n", curClient->ID,curClient->sock);
 	    do {
 			bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 			if(bytes < 0) error("ERROR writing to socket");
@@ -791,6 +802,7 @@ void handleListRequest(struct clientInfo *curClient) {
     /* send CLIENT_LIST header */
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "handleListRequest: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
     do {
 		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 		if(bytes < 0) error("ERROR writing to socket");
@@ -814,8 +826,9 @@ void handleChat(struct clientInfo *sender) {
 
     /* find the recipient and make sure they are valid */
     for(i = 0; i < MAXCLIENTS; i++) {
-		if(strcmp(clients[i].ID, sender->destID) == 0) {
+		if((strcmp(clients[i].ID, sender->destID) == 0) && clients[i].active) {
 		    if((strcmp(sender->destID, sender->ID) != 0) && (strcmp(sender->destID,"") != 0)) {
+
 				receiver = &clients[i];
 				badRecipient = 0;
 	    	}
@@ -842,6 +855,7 @@ void handleChat(struct clientInfo *sender) {
     /* send CHAT header */
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "handleChat: Writing to %s with sock %d\n", receiver->ID,receiver->sock);
     do {
 		bytes = write(receiver->sock, (char *)&responseHeader+sent, total-sent);
 		if(bytes < 0) error("ERROR writing to socket");
@@ -872,6 +886,7 @@ void handleExit(struct clientInfo *curClient) {
 		FD_CLR(sock, &active_fd_set);
 		curClient->active = false;
 		curClient->sock = -1;
+		numActiveClients--;
 	} else {
 		//if(!curClient->active) fprintf(stderr, "exit: not active\n");
 		//if(!curClient->validated) fprintf(stderr, "exit: not validated\n");
@@ -917,7 +932,7 @@ void handleExit(struct clientInfo *curClient) {
 		if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
 		if(clients[i].active && !clients[i].readyToDraft) startDraft = false;
 	}
-	if(startDraft) sendStartDraft();
+	if(startDraft && !draftStarted) sendStartDraft();
 
 }
 
@@ -961,11 +976,12 @@ void handleCannotDeliver(struct clientInfo *curClient) {
     /* send CANNOT_DELIVER */
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "cannotDeliver: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
     do {
-	bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
-	if(bytes < 0) error("ERROR writing to socket");
-	if(bytes == 0) break;
-	sent+=bytes;
+		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
+		if(bytes < 0) error("ERROR writing to socket");
+		if(bytes == 0) break;
+		sent+=bytes;
     } while (sent < total);
 }
 
@@ -983,6 +999,7 @@ void handleError(struct clientInfo *curClient) {
     	/* send ERROR */
 	    int bytes, sent, total;
     	total = HEADERSIZE; sent = 0;
+    	fprintf(stderr, "handleError: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
 	    do {
 			bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 			if(bytes < 0) error("ERROR writing to socket");
@@ -1016,9 +1033,10 @@ void handlePlayerRequest(struct clientInfo *curClient) {
 	
     //fprintf (stderr, "PLAYER_RESPONSE responseHeader: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", responseHeader.type, responseHeader.sourceID, responseHeader.destID, responseHeader.dataLength, responseHeader.msgID);
 
-    /* send CLIENT_LIST header */
+    /* send PLAYER_RESPONSE header */
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "handlePlayerRequest: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
     do {
 		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 		if(bytes < 0) error("ERROR writing to socket");
@@ -1112,6 +1130,7 @@ void sendPing(clientInfo *curClient) {
 
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "sendPing: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
     do {
 	    clock_gettime(CLOCK_MONOTONIC,&curClient->lastPingSent);
 		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
@@ -1168,6 +1187,7 @@ void handleStartDraft(clientInfo *curClient) {
 
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "handleStartDraft: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
     do {
 		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 		if(bytes < 0) error("ERROR writing to socket");
@@ -1202,7 +1222,7 @@ void sendStartDraft() {
     responseHeader.msgID = htonl(ROUNDTIME | PARTICIPATING_MASK);
 
     string s;
-    s = "The draft is now starting with "; s += to_string(numClients); s += " clients!";
+    s = "The draft is now starting with "; s += to_string(numActiveClients); s += " clients!";
 
    	char stringBuffer[s.length() + 1];
 	strcpy(stringBuffer, s.c_str());
@@ -1218,6 +1238,7 @@ void sendStartDraft() {
     		
 		    int bytes, sent, total;
 		    total = HEADERSIZE; sent = 0;
+		    fprintf(stderr, "sendStartDraft: Writing to %s with sock %d\n", clients[i].ID, clients[i].sock);
 		    do {
 				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
 				if(bytes < 0) error("ERROR writing to socket");
@@ -1249,7 +1270,9 @@ void sendStartDraft() {
 
     random_shuffle(theDraft.order.begin(), theDraft.order.end());
     draftNum++;
-   	draftNewRound();
+   	//draftNewRound();
+   	usleep(maxDelay * 1000);
+   	startnewRound = true;
 }
 
 void handlePingResponse(clientInfo *curClient) {
@@ -1273,6 +1296,7 @@ void handlePingResponse(clientInfo *curClient) {
 		curClient->devRTT = (beta * fabs(delayms - curClient->estRTT)) + ((1.0 - beta) * curClient->devRTT);
 		curClient->timeout = max((curClient->estRTT + (4 * curClient->devRTT)), minTimeout);
 
+		curClient->pings++;
 		//fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
 		maxDelay = 0;
 		for(int i = 0; i < MAXCLIENTS; i++) {
@@ -1280,9 +1304,9 @@ void handlePingResponse(clientInfo *curClient) {
 		}
 	}
 
-	if(curClient->pings-- > 0) {
-		sendPing(curClient);
-	}
+	//if(curClient->pings-- > 0) {
+	//	sendPing(curClient);
+	//}
 }
 
 string sha256(const string str) {
@@ -1300,6 +1324,7 @@ string sha256(const string str) {
 }
 
 void draftNewRound() {
+	startnewRound = false;
     theDraft.currentRound++;
     theDraft.index = theDraft.currentRound - 1;
     theDraft.index = theDraft.index % playerData.size();
@@ -1316,12 +1341,15 @@ void draftNewRound() {
     responseHeader.dataLength = htonl(strlen(curPlayer) + 1);
     responseHeader.msgID = htonl(theDraft.currentRound);	
 
+    timespec writeTime;
     for(int i = 0; i < MAXCLIENTS; i++) {
     	if(clients[i].active) {
 		    strcpy(responseHeader.destID, clients[i].ID);
-
+		    clock_gettime(CLOCK_MONOTONIC, &writeTime);
+		    //fprintf(stderr, "writeTime for %s: sec: %d, nsec: %d\n", clients[i].ID, writeTime.tv_sec, writeTime.tv_nsec);
 			int bytes, sent, total;
 		    total = HEADERSIZE; sent = 0;
+		    fprintf(stderr, "draftNewRound: Writing to %s with sock %d\n", clients[i].ID, clients[i].sock);
 		    do {
 				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
 				if(bytes < 0) error("ERROR writing to socket");
@@ -1412,6 +1440,7 @@ void endDraftRound() {
 		    memcpy(responseHeader.destID, clients[i].ID, IDLENGTH);
 		    int bytes, sent, total;
 		    total = HEADERSIZE; sent = 0;
+		    fprintf(stderr, "endDraftRound: Writing to %s with sock %d\n", clients[i].ID, clients[i].sock);
 		    do {
 				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
 				if(bytes < 0) error("ERROR writing to socket");
@@ -1455,8 +1484,9 @@ void endDraftRound() {
 		fprintf(stderr, "Going to end the draft now\n");
 		endDraft();
 	} else {
-		usleep(maxDelay * 2000);
-		draftNewRound();
+		usleep(maxDelay * 1000);
+		startnewRound = true;
+//		draftNewRound();
 	}
 }
 
@@ -1477,6 +1507,7 @@ void endDraft() {
 
 		    int bytes, sent, total;
 		    total = HEADERSIZE; sent = 0;
+		    fprintf(stderr, "endDraft: Writing to %s with sock %d\n", clients[i].ID, clients[i].sock);
 		    do {
 				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
 				if(bytes < 0) error("ERROR writing to socket");

@@ -162,8 +162,8 @@ int main(int argc, char *argv[]) {
         sleepTime += (buffer[i-j-1] * pow(10,j));
     }
 
-    fprintf(stdout, "Sleeping for %d ms on pings\n", sleepTime);
-    sleepTime = sleepTime * 500; // *1000 for nanoseconds to millisecons, /2 for round trip
+    fprintf(stdout, "Adding %d ms latency on reads and writes\n", sleepTime);
+    sleepTime = sleepTime * 1000; // *1000 for nanoseconds to millisecons
     sendHello();
 
     bool exiting = false;
@@ -201,8 +201,8 @@ int main(int argc, char *argv[]) {
                         sendStartDraft();
                     } else if (message == 3) {
                         if(roundLength > 0) {
-                            fprintf(stdout, "Shutting down, will logout in %d seconds for the sake of the server\n", roundLength + 1);
-                            sleep(roundLength + 1);
+//                            fprintf(stdout, "Shutting down, will logout in %d seconds for the sake of the server\n", (roundLength + ((sleepTime + 500) / 1000)));
+//                            sleep(roundLength + ((sleepTime + 500) / 1000));
                         }
                         //sendExit();
                         exiting = true;
@@ -211,8 +211,8 @@ int main(int argc, char *argv[]) {
                         sendExit();
 
                         if(roundLength > 0) {
-                            fprintf(stdout, "Shutting down, will quit in %d seconds for the sake of the server\n", roundLength + 1);
-                            sleep(roundLength + 1);
+//                            fprintf(stdout, "Shutting down, will quit in %d seconds for the sake of the server\n", roundLength + ((sleepTime + 500)/1000));
+//                            sleep(roundLength + ((sleepTime + 500)/1000));
                         }
 
                         exiting = true;
@@ -375,7 +375,6 @@ void readMessage() {
     int bytes;
 
     memset(headerBuffer,0,sizeof(headerBuffer));
-    usleep(sleepTime);
     while(received < total) {
         bytes = read(sockfd,headerBuffer+received,total-received);
         if(bytes < 0) error("ERROR reading header from socket\n");
@@ -393,6 +392,9 @@ void readMessage() {
     headerToRead.length = ntohl(headerToRead.length);
     headerToRead.msgID = ntohl(headerToRead.msgID);
 
+    //fprintf(stderr, "Before read sleep\n");
+    usleep(sleepTime);
+    //fprintf(stderr, "After read sleep\n");
     //fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
     if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
@@ -488,7 +490,14 @@ void readMessage() {
                     strcpy(playerData[i].owner,serv);
                 }
             }
+
+            while(playerData.size() == 0) {
+                fprintf(stdout, "Waiting for player data from server...%s\n");
+                readMessage();
+            }
+
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
+
             for(int i = 0; i < playerData.size(); i++) {
                 if(strcmp(playerData[i].PLAYER_NAME, dataBuffer) == 0) {
                     curDraftIndex = i;
