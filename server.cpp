@@ -119,9 +119,10 @@ int clientCounter = 0;
 int numClients = 0; int numActiveClients = 0;
 int maxDelay = 0;
 int draftNum = 0;
-bool pingNow = false;
+bool timedOut = false;
 bool draftStarted;
-bool startnewRound = false;
+bool startDraft = false;
+bool startNewRound = false;
 struct draftInfo theDraft;
 
 vector<playerInfo> playerData;
@@ -136,12 +137,25 @@ void error(const char *msg)
     exit(1);
 }
 
+int max(int a, int b) {
+	if(a > b) return a;
+	return b;
+}
+
+int min(int a, int b) {
+	if(a < b) return a;
+	return b;
+}
+
+// 1. All purpose method for new read from a client
 void readFromClient(int sockfd);
 
+// 2. Methods for reading specifc parts of messages
 void readHeader(struct clientInfo *curClient, int sockfd);
 void readData(struct clientInfo *curClient);
 void readPword(struct clientInfo *curClient);
 
+// 3. Methods for handling particular types of messages
 void handleHello(struct clientInfo *curClient);
 void handleListRequest(struct clientInfo *curClient);
 void handleChat(struct clientInfo *sender);
@@ -155,23 +169,32 @@ void handleDraftPass(struct clientInfo *curClient);
 void handleStartDraft(struct clientInfo *curClient);
 void handlePingResponse(struct clientInfo *curClient);
 
+// 4. Method for sending pings to all clients
 void sendPing(struct clientInfo *curClient);
-void sendStartDraft();
-void endDraft();
 
+// 5. Methods called by the server to state of the draft
+void sendStartDraft();
 void draftNewRound();
 void endDraftRound();
+void endDraft();
+
+// 6. Helper function, returns true if conditions for ending the current draft round are met
 bool roundIsOver();
 
+// 7. Helper functions for dealing with timespecs
 void timespecAdd(timespec *a, timespec *b, timespec *c);
+void timespecSubtract(timespec *a, timespec *b, timespec *c);
 bool timespecLessthan(timespec *a, timespec *b);
 
+// 8. Function for hashing passwords
 string sha256(const string str);
 
 fd_set active_fd_set, read_fd_set; // Declared here so all functions can use
 
-int main(int argc, char *argv[])
-{
+/********************************************************************
+ *							Section 0: main							*
+ ********************************************************************/
+int main(int argc, char *argv[]) {
 	srand(unsigned (time(0)));
 
 	// TODO: Give more options than this hard coded file
@@ -212,31 +235,43 @@ int main(int argc, char *argv[])
  
     clilen = sizeof(cli_addr); 
     while(1) {
-    	if(draftStarted) {
-    		timespec curTime;
-    		clock_gettime(CLOCK_MONOTONIC,&curTime);
+    	fprintf(stderr, "Top of while\n");
+   		timespec curTime;
+   		clock_gettime(CLOCK_MONOTONIC,&curTime);
 
-    		//fprintf(stderr, "curTime - roundEndTime: %d\n", curTime.tv_sec - theDraft.roundEndTime.tv_sec);
-    		if(curTime.tv_sec > theDraft.roundEndTime.tv_sec) {
+		timespec timeToEndRound;
+    	if(draftStarted && !startNewRound) {
+    		fprintf(stderr, "draftStarted && !startNewRound\n");
+    		if(timespecLessthan(&theDraft.roundEndTime,&curTime)) {
+    			fprintf(stderr, "About to endDraftRound\n");
     			endDraftRound();
-    			//break;
-    		}
+    			continue;
+    		} else {
+    			fprintf(stderr, "About to timespecSubtract\n");
+				timespecSubtract(&theDraft.roundEndTime,&curTime,&timeToEndRound);
+				fprintf(stderr, "Time til next round: %d.%ds\n", timeToEndRound.tv_sec,timeToEndRound.tv_nsec);
+			}
+    	} else {
+    		fprintf(stderr, "!draftStarted || startNewRound\n");
+    		timeToEndRound.tv_sec = 99999;
+    		timeToEndRound.tv_nsec = 0;
     	}
 
-    	if(pingNow && !startnewRound) {
+    	if(timedOut && !startNewRound) {
 			for(int i = 0; i < MAXCLIENTS; i++) {
 				if(clients[i].active && clients[i].validated) {
-					if(!draftStarted || (clients[i].pings < 5)) {
+					if(!draftStarted || (clients[i].pings < 5) || ((curTime.tv_sec - clients[i].lastPingSent.tv_sec) > 30)) {
 						sendPing(&clients[i]);
 					}
 				}
 			}
 		}
 
-		//fprintf(stderr, "While again\n");
-		pingNow = true;
+		timedOut = true;
 
-		struct timeval selectTimeout = {5,0};
+		int timeoutSecs = min(max(((int)(maxDelay + 500) / 1000), 5), (timeToEndRound.tv_sec + 1) );
+		fprintf(stderr, "timeoutSecs: %d\n", timeoutSecs);
+		struct timeval selectTimeout = {timeoutSecs,(timeToEndRound.tv_nsec / 1000)};
 		read_fd_set = active_fd_set;
 		/* Block until input arrives on one or more active sockets */
 		if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, &selectTimeout) < 0) {
@@ -246,7 +281,7 @@ int main(int argc, char *argv[])
 		/* Service all the sockets with input pending */
 		for(i = 0; i < FD_SETSIZE; i++) { //FD_SETSIZE == 1024
 	    	if(FD_ISSET(i, &read_fd_set)) {
-	    		pingNow = false;
+	    		timedOut = false;
 				if(i == sockfd) {
 			    	/* Connection request on original socket */
 				    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
@@ -283,16 +318,19 @@ int main(int argc, char *argv[])
 			    /* Data arriving on an already-connected socket */
 			    	readFromClient(i);
 				}
-	    	}
+	    	} 
 		}
-
-		if(startnewRound) draftNewRound();
+//	    if(timedOut) fprintf(stderr, "Timed out select\n");
+		if(startDraft && timedOut) sendStartDraft();
+		if(startNewRound && timedOut) draftNewRound();
     }
     close(sockfd); 
     return 0; 
 }  
 
-
+/********************************************************************
+ *				Section 1: Determine which read to use				*
+ ********************************************************************/
 void readFromClient (int sockfd) {
     int i;
     struct clientInfo *curClient;
@@ -339,6 +377,10 @@ void readFromClient (int sockfd) {
     }
 }
 
+
+/********************************************************************
+ *			Section 2: Read specific parts of messages				*
+ ********************************************************************/
 void readHeader(struct clientInfo *curClient, int sockfd) {
     char header_buffer[HEADERSIZE];
     int nbytes;
@@ -367,7 +409,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 		newHeader.msgID = ntohl(newHeader.msgID);
 		curClient->headerToRead = HEADERSIZE;
 
-		//fprintf (stderr, "Read-in header: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", newHeader.type, newHeader.sourceID, newHeader.destID, newHeader.dataLength, newHeader.msgID);
+		fprintf (stderr, "Header read in: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", newHeader.type, newHeader.sourceID, newHeader.destID, newHeader.dataLength, newHeader.msgID);
 
 		/* identify potential bad input */
 		if((strcmp(newHeader.sourceID,curClient->ID) != 0) && (strcmp(curClient->ID,"") != 0) && curClient->active) {
@@ -402,7 +444,6 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 				return;
 		    }
 
-
 		    /* handle HELLO-specific bad input */
 	    	if(strcmp(curClient->ID,"") != 0) {
 		    	// If there is already and ID, this is not this client's first interaction with the server
@@ -426,10 +467,9 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 				return;
 		    }
 
-	    	// readPword(curClient, newHeader.sourceID);
 		    /* look for CLIENT_ALREADY_PRESENT error */
-		    int i; int duplicate = 0;
-	    	for(i = 0; i < MAXCLIENTS; i++) {
+		    bool duplicate = false;
+	    	for(int i = 0; i < MAXCLIENTS; i++) {
 				if(strcmp(clients[i].ID, newHeader.sourceID) == 0) {
 					if(clients[i].active) {
 						// Can't sign in as active user
@@ -438,11 +478,11 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 						return;
 					}
 					// Could be client returning
-					duplicate = 1;
+					duplicate = true;
 		    	}
 			}
 		
-			if(duplicate == 0) {
+			if(!duplicate) {
 		   		// There is no chance of collision with existing user
 			   	curClient->validated = true;
 			} else {
@@ -477,6 +517,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 				return;
 		    }
 		    handleListRequest(curClient);
+
 		} else if(newHeader.type == CHAT) {
 		    /* handle CHAT-specific bad input (not related to CANNOT_DELIVER) */
 	    	if(newHeader.msgID == 0) {
@@ -497,6 +538,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 		    curClient->mode = CHAT;
 		    curClient->dataToRead = newHeader.dataLength;
 	    	curClient->totalDataExpected = newHeader.dataLength;
+
 		} else if(newHeader.type == EXIT) {
 		    /* No need to check for errors, 
                we're kicking the client out anyway! */
@@ -504,27 +546,32 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 			numActiveClients--;
 			curClient->validated = false;
 		    handleExit(curClient);
+
 		} else if(newHeader.type == PLAYER_REQUEST) {
-			//string augCSV = vectorToAugmentedCSV(playerData);
 			handlePlayerRequest(curClient);
+
 		} else if(newHeader.type == DRAFT_REQUEST) {
 			memset(curClient->partialData, 0, MAXDATASIZE);
 			curClient->mode = DRAFT_REQUEST;
 			curClient->dataToRead = newHeader.dataLength;
 			curClient->totalDataExpected = newHeader.dataLength;
+
 		}else if(newHeader.type == PING_RESPONSE) {
 			memset(curClient->partialData,0,MAXDATASIZE);
 			curClient->mode = PING_RESPONSE;
 			curClient->msgID = newHeader.msgID;
 			curClient->dataToRead = newHeader.dataLength;
 			curClient->totalDataExpected = newHeader.dataLength;
+
 		} else if(newHeader.type == START_DRAFT) {
 			handleStartDraft(curClient);
+
 		} else if(newHeader.type == DRAFT_PASS) {
 			memset(curClient->partialData, 0, MAXDATASIZE);
 			curClient->mode = DRAFT_PASS;
 			curClient->dataToRead = newHeader.dataLength;
 			curClient->totalDataExpected = newHeader.dataLength;
+
 		} else {
 	    	fprintf(stderr, "ERROR: bad header type\n");
 		    handleError(curClient);
@@ -606,6 +653,10 @@ void readPword(struct clientInfo *curClient) {
 	}
 }
 
+
+/********************************************************************
+ *			Section 3: Handlers for specific message types			*
+ ********************************************************************/
 void handleHello(struct clientInfo *curClient) {
     /* Add client ID to clientInfo */
     // memcpy(curClient->ID, ID, IDLENGTH);
@@ -683,7 +734,7 @@ void handleHello(struct clientInfo *curClient) {
     handleListRequest(curClient);
     //curClient->estRTT = 100;
     //curClient->pings = 50;
-    sendPing(curClient);
+    //sendPing(curClient);
 
     if(draftStarted && curClient->readyToDraft) {
     	struct header responseHeader;
@@ -1116,34 +1167,6 @@ void handleDraftPass(clientInfo *curClient) {
 	}
 }
 
-void sendPing(clientInfo *curClient) {
-	//struct  timespec startTime;
-	//char timeBuffer[sizeof(startTime)];
-
-	struct header responseHeader;
-	memset(&responseHeader,0,sizeof(responseHeader));
-    responseHeader.type = htons(PING);
-    strcpy(responseHeader.sourceID, "Server");
-    strcpy(responseHeader.destID, curClient->ID);
-    responseHeader.dataLength = htonl(0);
-    responseHeader.msgID = htonl(++curClient->pingID);
-
-    int bytes, sent, total;
-    total = HEADERSIZE; sent = 0;
-    fprintf(stderr, "sendPing: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
-    do {
-	    clock_gettime(CLOCK_MONOTONIC,&curClient->lastPingSent);
-		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
-		if(bytes < 0) error("ERROR writing to socket");
-		if(bytes == 0) break;
-		sent+=bytes;
-    } while (sent < total);
-
-    //readHeader(curClient, curClient->sock);
-    //readData(curClient);
-    //memcpy(timeBuffer,&startTime,sizeof(startTime));
-}
-
 void handleStartDraft(clientInfo *curClient) {
 	curClient->readyToDraft = !curClient->readyToDraft;
 	string s;
@@ -1205,15 +1228,87 @@ void handleStartDraft(clientInfo *curClient) {
     }
 
     if((totalClients == readyClients) && !draftStarted) {
-    	usleep((int)maxDelay * 1000);
-    	sendStartDraft();
-    	draftStarted = true;
+//    	usleep((int)maxDelay * 1000);
+    	startDraft = true;
+//    	sendStartDraft();
+//    	draftStarted = true;
     }
 }
 
+
+void handlePingResponse(clientInfo *curClient) {
+	struct timespec sentTime, curTime;
+	clock_gettime(CLOCK_MONOTONIC,&curTime);
+	memcpy((char *)&sentTime,curClient->partialData,sizeof(sentTime));
+
+	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
+
+	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
+	//fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
+	if(curClient->msgID != curClient->pingID) return;
+
+	if(delayms < curClient->timeout) {
+		if(curClient->estRTT == 0) {
+			curClient->estRTT = delayms;
+		} else {
+			curClient->estRTT = (alpha * curClient->estRTT) + (delayms * (1.0 - alpha));
+		}
+
+		curClient->devRTT = (beta * fabs(delayms - curClient->estRTT)) + ((1.0 - beta) * curClient->devRTT);
+		curClient->timeout = max((curClient->estRTT + (4 * curClient->devRTT)), minTimeout);
+
+		curClient->pings++;
+		//fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
+		maxDelay = 0;
+		for(int i = 0; i < MAXCLIENTS; i++) {
+			if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
+		}
+	}
+
+	//if(curClient->pings-- > 0) {
+	//	sendPing(curClient);
+	//}
+}
+
+
+/********************************************************************
+ *			Section 4: Method for sending a ping 					*
+ ********************************************************************/
+void sendPing(clientInfo *curClient) {
+	//struct  timespec startTime;
+	//char timeBuffer[sizeof(startTime)];
+
+	struct header responseHeader;
+	memset(&responseHeader,0,sizeof(responseHeader));
+    responseHeader.type = htons(PING);
+    strcpy(responseHeader.sourceID, "Server");
+    strcpy(responseHeader.destID, curClient->ID);
+    responseHeader.dataLength = htonl(0);
+    responseHeader.msgID = htonl(++curClient->pingID);
+
+    int bytes, sent, total;
+    total = HEADERSIZE; sent = 0;
+    fprintf(stderr, "sendPing: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
+    do {
+	    clock_gettime(CLOCK_MONOTONIC,&curClient->lastPingSent);
+		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
+		if(bytes < 0) error("ERROR writing to socket");
+		if(bytes == 0) break;
+		sent+=bytes;
+    } while (sent < total);
+
+    //readHeader(curClient, curClient->sock);
+    //readData(curClient);
+    //memcpy(timeBuffer,&startTime,sizeof(startTime));
+}
+
+
+/********************************************************************
+ *			Section 5: Methods for managing the draft				*
+ ********************************************************************/
 void sendStartDraft() {
 	memset(&theDraft,0,sizeof(theDraft));
-
+	startDraft = false;
 	//fprintf(stderr, "In sendStartDraft\n");
 	struct header responseHeader;
 	memset(&responseHeader,0,sizeof(responseHeader));
@@ -1272,59 +1367,12 @@ void sendStartDraft() {
     draftNum++;
    	//draftNewRound();
    	usleep(maxDelay * 1000);
-   	startnewRound = true;
-}
-
-void handlePingResponse(clientInfo *curClient) {
-	struct timespec sentTime, curTime;
-	clock_gettime(CLOCK_MONOTONIC,&curTime);
-	memcpy((char *)&sentTime,curClient->partialData,sizeof(sentTime));
-
-	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
-
-	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
-	//fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
-	if(curClient->msgID != curClient->pingID) return;
-
-	if(delayms < curClient->timeout) {
-		if(curClient->estRTT == 0) {
-			curClient->estRTT = delayms;
-		} else {
-			curClient->estRTT = (alpha * curClient->estRTT) + (delayms * (1.0 - alpha));
-		}
-
-		curClient->devRTT = (beta * fabs(delayms - curClient->estRTT)) + ((1.0 - beta) * curClient->devRTT);
-		curClient->timeout = max((curClient->estRTT + (4 * curClient->devRTT)), minTimeout);
-
-		curClient->pings++;
-		//fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
-		maxDelay = 0;
-		for(int i = 0; i < MAXCLIENTS; i++) {
-			if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
-		}
-	}
-
-	//if(curClient->pings-- > 0) {
-	//	sendPing(curClient);
-	//}
-}
-
-string sha256(const string str) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, str.c_str(), str.size());
-    SHA256_Final(hash, &sha256);
-    stringstream ss;
-    for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
-    {
-        ss << hex << setw(2) << setfill('0') << (int)hash[i];
-    }
-    return ss.str();
+   	draftStarted = true;
+   	startNewRound = true;
 }
 
 void draftNewRound() {
-	startnewRound = false;
+	startNewRound = false;
     theDraft.currentRound++;
     theDraft.index = theDraft.currentRound - 1;
     theDraft.index = theDraft.index % playerData.size();
@@ -1485,7 +1533,7 @@ void endDraftRound() {
 		endDraft();
 	} else {
 		usleep(maxDelay * 1000);
-		startnewRound = true;
+		startNewRound = true;
 //		draftNewRound();
 	}
 }
@@ -1500,10 +1548,10 @@ void endDraft() {
     responseHeader.msgID = htonl(draftNum);
 
 	for(int i = 0; i < MAXCLIENTS; i++) {
+		clients[i].readyToDraft = false;
 		if(clients[i].active) {
 
 		    memcpy(responseHeader.destID, clients[i].ID, IDLENGTH);
-		    clients[i].readyToDraft = false;
 
 		    int bytes, sent, total;
 		    total = HEADERSIZE; sent = 0;
@@ -1523,22 +1571,10 @@ void endDraft() {
 	}
 }
 
-void timespecAdd(timespec *a, timespec *b, timespec *c) {
-	time_t secs = a->tv_sec + b->tv_sec + ((a->tv_nsec + b->tv_nsec) / 1000000000);
-	long nsecs = (a->tv_nsec + b->tv_nsec) % 1000000000;
 
-	c->tv_sec = secs;
-	c->tv_nsec = nsecs;
-}
-
-bool timespecLessthan(timespec *a, timespec *b) {
-	// Is a less than/earlier than b?
-	if(a->tv_sec < b->tv_sec) return true;
-	if(a->tv_sec > b->tv_sec) return false;
-	if(a->tv_nsec < b->tv_nsec) return true;
-	return false;
-}
-
+/********************************************************************
+ *		Section 6: Helper for deciding if draft round is over		*
+ ********************************************************************/
 bool roundIsOver() {
 	//fprintf(stderr, "In roundIsOver\n");
 	bool allResponsesRecieved = true;
@@ -1551,4 +1587,57 @@ bool roundIsOver() {
 			}
 	}
 	return allResponsesRecieved;
+}
+
+
+/********************************************************************
+ *		Section 7: Helpers for timespec comparison and arithmetic	*
+ ********************************************************************/
+void timespecAdd(timespec *a, timespec *b, timespec *c) {
+	time_t secs = a->tv_sec + b->tv_sec + ((a->tv_nsec + b->tv_nsec) / 1000000000);
+	long nsecs = (a->tv_nsec + b->tv_nsec) % 1000000000;
+
+	c->tv_sec = secs;
+	c->tv_nsec = nsecs;
+}
+
+// Assumes a > b
+void timespecSubtract(timespec *a, timespec *b, timespec *c) {
+	if(!timespecLessthan(b,a)) return;
+
+	if (a->tv_nsec < b->tv_nsec) {
+		c->tv_nsec = a->tv_nsec + 1000000000;
+		c->tv_sec = a-> tv_sec - 1;
+	} else {
+		c->tv_nsec = a->tv_nsec;
+		c->tv_sec = a->tv_sec;
+	}
+
+	c->tv_nsec = c->tv_nsec - b->tv_nsec;
+	c->tv_sec = c->tv_sec - b->tv_sec;
+}
+
+bool timespecLessthan(timespec *a, timespec *b) {
+	// Is a less than/earlier than b?
+	if(a->tv_sec < b->tv_sec) return true;
+	if(a->tv_sec > b->tv_sec) return false;
+	if(a->tv_nsec < b->tv_nsec) return true;
+	return false;
+}
+
+/********************************************************************
+ *		 Section 8: Helper for encrypting user passwords			*
+ ********************************************************************/
+string sha256(const string str) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, str.c_str(), str.size());
+    SHA256_Final(hash, &sha256);
+    stringstream ss;
+    for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
+    {
+        ss << hex << setw(2) << setfill('0') << (int)hash[i];
+    }
+    return ss.str();
 }

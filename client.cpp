@@ -61,15 +61,18 @@ int min(int a, int b) {
     else return b;
 }
 
+// 1. Highest level send and recieve methods
 void sendMessage();
 void readMessage();
 
+// 2. Methods for sending particular messages
 void sendHello();
 void sendPlayerRequest(bool quiet);
 void sendStartDraft();
 void sendExit();
 void replyPing(int pingID);
 
+// 3. Methods for retrieving data to print or write
 void showDrafted(bool checkServer);
 void showTeam(char *owner);
 void outputResults(int draftNum);
@@ -83,7 +86,6 @@ vector<playerInfo> playerData;
 char username[IDLENGTH];
 char pword[IDLENGTH];
 char serv[IDLENGTH] = "Server";
-//char curPlayer[50];
 
 bool lastReadWasPing = false;
 bool draftInProgress = false;
@@ -93,6 +95,10 @@ int curDraftIndex;
 bool requestQuietly;
 fd_set active_fd_set, read_fd_set;
 
+
+/********************************************************************
+ *                      Section 0: Main method                      *
+ ********************************************************************/
 int main(int argc, char *argv[]) {
     if(argc != 3) {
     fprintf(stdout, "Usage: ./client comp112-0x.cs.tufts.edu <port>\n");
@@ -103,11 +109,10 @@ int main(int argc, char *argv[]) {
     char *host = argv[1];
     int port = atoi(argv[2]);
     char message[1024];
-    //strcpy(message, argv[3]);
 
     struct hostent *server;
     struct sockaddr_in serv_addr;
-    //int sockfd, bytes, sent, recieved, total;
+
     char response [450];
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -148,7 +153,7 @@ int main(int argc, char *argv[]) {
     pword[19] = '\0';
     fprintf(stdout, "Your password is %s\n\n", pword);
 
-    fprintf(stdout, "How many ms of latency do you want to add to pings?\n");
+    fprintf(stdout, "How many ms of latency do you want to reads and writes?\n");
     char buffer[8];
     i = 0;
     while(read(0,&ch,1) > 0){
@@ -200,21 +205,11 @@ int main(int argc, char *argv[]) {
                     } else if (message == 2) {
                         sendStartDraft();
                     } else if (message == 3) {
-                        if(roundLength > 0) {
-//                            fprintf(stdout, "Shutting down, will logout in %d seconds for the sake of the server\n", (roundLength + ((sleepTime + 500) / 1000)));
-//                            sleep(roundLength + ((sleepTime + 500) / 1000));
-                        }
                         //sendExit();
                         exiting = true;
                         break;
                     } else if (message == 4) {
                         sendExit();
-
-                        if(roundLength > 0) {
-//                            fprintf(stdout, "Shutting down, will quit in %d seconds for the sake of the server\n", roundLength + ((sleepTime + 500)/1000));
-//                            sleep(roundLength + ((sleepTime + 500)/1000));
-                        }
-
                         exiting = true;
                         break;
                     }
@@ -235,13 +230,15 @@ int main(int argc, char *argv[]) {
 
     }
     fprintf(stdout, "Signed off! Have a nice day\n");
-    //sleep(roundLength);
-    //close(sockfd);
+    close(sockfd);
 
     return 0;
 }
 
-// TODO: Allow message input while header is being compiled
+
+/********************************************************************
+ *      Section 1: Highest level send (write) and read methods      *
+ ********************************************************************/
 void sendMessage() {
     struct header headerToSend;
     char ch; int i = 0;
@@ -577,7 +574,7 @@ void readMessage() {
             if(madeClaim) {
                 fprintf(stderr, "Please wait while other players respond\n\n");
             } else {
-                fprintf(stderr, "You opportunity to claim %s has passed!\n\n", dataBuffer);
+                fprintf(stderr, "Your opportunity to claim %s has passed!\n\n", dataBuffer);
             }
         }
 
@@ -593,6 +590,10 @@ void readMessage() {
     }
 }
 
+
+/********************************************************************
+ *              Section 2: Send methods of specific types           *
+ ********************************************************************/
 void sendHello() {
     struct header helloHeader;
     memset(&helloHeader, 0, sizeof(helloHeader));
@@ -631,6 +632,34 @@ void sendHello() {
     while(lastReadWasPing) readMessage();
 
     sendPlayerRequest(true);
+}
+
+void sendPlayerRequest(bool quiet) {
+    struct header playerReqHeader;
+    memset(&playerReqHeader, 0, sizeof(playerReqHeader));
+    playerReqHeader.type = htons(PLAYER_REQUEST);
+    memcpy(playerReqHeader.sourceID,username,strlen(username));
+    memcpy(playerReqHeader.destID,serv,strlen(serv));
+    playerReqHeader.length = htonl(0);
+    playerReqHeader.msgID = htonl(0);
+
+    int total = sizeof(playerReqHeader);
+    int sent = 0;
+    int bytes;
+    usleep(sleepTime);
+    do {
+        bytes = write(sockfd,(char *)&playerReqHeader+sent,total-sent);
+        if(bytes < 0) error("ERROR writing message to socket");
+        if(bytes == 0) break;
+        sent+=bytes;
+        //fprintf(stdout,"Sent %d bytes of the hello header\n",sent);
+    } while (sent < total);
+
+    requestQuietly = quiet;
+    lastReadWasPing = true;
+    while(lastReadWasPing) {
+        readMessage();
+    }
 }
 
 void sendStartDraft() {
@@ -683,34 +712,6 @@ void sendExit() {
     } while (sent < total);
 }
 
-void sendPlayerRequest(bool quiet) {
-    struct header playerReqHeader;
-    memset(&playerReqHeader, 0, sizeof(playerReqHeader));
-    playerReqHeader.type = htons(PLAYER_REQUEST);
-    memcpy(playerReqHeader.sourceID,username,strlen(username));
-    memcpy(playerReqHeader.destID,serv,strlen(serv));
-    playerReqHeader.length = htonl(0);
-    playerReqHeader.msgID = htonl(0);
-
-    int total = sizeof(playerReqHeader);
-    int sent = 0;
-    int bytes;
-    usleep(sleepTime);
-    do {
-        bytes = write(sockfd,(char *)&playerReqHeader+sent,total-sent);
-        if(bytes < 0) error("ERROR writing message to socket");
-        if(bytes == 0) break;
-        sent+=bytes;
-        //fprintf(stdout,"Sent %d bytes of the hello header\n",sent);
-    } while (sent < total);
-
-    requestQuietly = quiet;
-    lastReadWasPing = true;
-    while(lastReadWasPing) {
-        readMessage();
-    }
-}
-
 void replyPing(int pingID) {
 
     struct timeval curTime;
@@ -754,6 +755,10 @@ void replyPing(int pingID) {
     }
 }
 
+
+/********************************************************************
+ *          Section 3: Methods for printing or saving data          *
+ ********************************************************************/
 void showDrafted(bool checkServer) {
     cout << "\nAll drafted players: \n";
     if(connected && checkServer) sendPlayerRequest(true);
