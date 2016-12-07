@@ -1381,6 +1381,15 @@ void handlePingResponse(clientInfo *curClient) {
 		}
 	} else {
 		fprintf(stderr, "Ping took too long; ping: %d, timeout: %f \n", delayms, curClient->timeout);
+		curClient->timeout += 100.0; //maybe not working
+		fprintf(stderr, "Adjusting timeout to %f\n", curClient->timeout);
+		maxDelay = 0;
+
+		for(int i = 0; i < MAXCLIENTS; i++) {
+			if((clients[i].timeout > maxDelay) && clients[i].active) {
+				maxDelay = clients[i].timeout;
+			}
+		}
 	}
 	//if(curClient->pings-- > 0) {
 	//	sendPing(curClient);
