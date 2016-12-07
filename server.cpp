@@ -87,7 +87,8 @@ struct clientInfo {
     char pword[65];
     bool validated;
 
-    int pingID;
+    int pingSent;
+    int pingRcvd;
     int pings;
     struct timespec lastPingSent;
     float estRTT;
@@ -123,6 +124,7 @@ bool timedOut = false;
 bool draftStarted;
 bool startDraft = false;
 bool startNewRound = false;
+bool curRoundPingsSent = false;
 struct draftInfo theDraft;
 
 vector<playerInfo> playerData;
@@ -256,22 +258,24 @@ int main(int argc, char *argv[]) {
     		timeToEndRound.tv_nsec = 0;
     	}
 
-    	if(timedOut && !startNewRound) {
-			for(int i = 0; i < MAXCLIENTS; i++) {
-				if(clients[i].active && clients[i].validated) {
-					if(!draftStarted || (clients[i].pings < 5) || ((curTime.tv_sec - clients[i].lastPingSent.tv_sec) > 30)) {
-						sendPing(&clients[i]);
-					}
-				}
-			}
-		}
+  //   	if((timedOut && !draftStarted) || (startNewRound && !curRoundPingsSent)) {
+		// 	for(int i = 0; i < MAXCLIENTS; i++) {
+		// 		if(clients[i].active && clients[i].validated) {
+		// 			if((clients[i].pingSent == clients[i].pingRcvd) || ((curTime.tv_sec - clients[i].lastPingSent.tv_sec) > 30)) {
+		// 				sendPing(&clients[i]);
+		// 			}
+		// 		}
+		// 	}
+		// 	if(startNewRound) curRoundPingsSent = true;
+		// }
 
 		timedOut = true;
 
 		//fprintf(stderr, "Max delay (ms): %f\n", maxDelay);
-		int timeoutSecs = min(max(((int)(maxDelay + 500) / 1000), 5), (timeToEndRound.tv_sec + 1) );
+		int timeoutSecs = min(max(((int)(maxDelay + 1500) / 1000), 5), (timeToEndRound.tv_sec + 1) );
 		fprintf(stderr, "timeoutSecs: %d\n", timeoutSecs);
 		struct timeval selectTimeout = {timeoutSecs,(timeToEndRound.tv_nsec / 1000)};
+		if(startNewRound && !curRoundPingsSent) selectTimeout = {0,1000};
 		read_fd_set = active_fd_set;
 		/* Block until input arrives on one or more active sockets */
 		if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, &selectTimeout) < 0) {
@@ -321,6 +325,21 @@ int main(int argc, char *argv[]) {
 	    	} 
 		}
 //	    if(timedOut) fprintf(stderr, "Timed out select\n");
+		if((timedOut && !draftStarted) || (startNewRound && !curRoundPingsSent)) {
+			for(int i = 0; i < MAXCLIENTS; i++) {
+				if(clients[i].active && clients[i].validated) {
+					if((clients[i].pingSent == clients[i].pingRcvd) || ((curTime.tv_sec - clients[i].lastPingSent.tv_sec) > 30)) {
+						sendPing(&clients[i]);
+					}
+				}
+			}
+			if(startNewRound) {
+				curRoundPingsSent = true;
+				timedOut = false;
+			}
+
+		}
+
 		if(startDraft && timedOut) sendStartDraft();
 		if(startNewRound && timedOut) draftNewRound();
     }
@@ -1320,7 +1339,7 @@ void handleStartDraft(clientInfo *curClient) {
     }
 
     if((totalClients == readyClients) && !draftStarted) {
-//    	usleep((int)maxDelay * 1000);
+    	//usleep(maxDelay * 1000);
     	startDraft = true;
 //    	sendStartDraft();
 //    	draftStarted = true;
@@ -1336,8 +1355,9 @@ void handlePingResponse(clientInfo *curClient) {
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
 
 	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
-	//fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
-	if(curClient->msgID != curClient->pingID) return;
+	fprintf(stderr, "Ping recieved: %d, curClient->pingSent: %d\n", curClient->msgID, curClient->pingSent);
+	curClient->pingRcvd = curClient->msgID;
+	if(curClient->pingRcvd != curClient->pingSent) return;
 
 	if(delayms < curClient->timeout) {
 		if(curClient->estRTT == 0) {
@@ -1359,6 +1379,8 @@ void handlePingResponse(clientInfo *curClient) {
 				maxDelay = clients[i].timeout;
 			}
 		}
+	} else {
+		fprintf(stderr, "Ping took too long; ping: %d, timeout: %f \n", delayms, curClient->timeout);
 	}
 	//if(curClient->pings-- > 0) {
 	//	sendPing(curClient);
@@ -1379,7 +1401,7 @@ void sendPing(clientInfo *curClient) {
     strcpy(responseHeader.sourceID, "Server");
     strcpy(responseHeader.destID, curClient->ID);
     responseHeader.dataLength = htonl(0);
-    responseHeader.msgID = htonl(++curClient->pingID);
+    responseHeader.msgID = htonl(++curClient->pingSent);
 
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
@@ -1461,9 +1483,10 @@ void sendStartDraft() {
     random_shuffle(theDraft.order.begin(), theDraft.order.end());
     draftNum++;
    	//draftNewRound();
-   	//usleep(maxDelay * 1000);
+   	usleep(maxDelay * 1000);
    	draftStarted = true;
    	startNewRound = true;
+   	curRoundPingsSent = false;
 }
 
 void draftNewRound() {
@@ -1627,8 +1650,9 @@ void endDraftRound() {
 		fprintf(stderr, "Going to end the draft now\n");
 		endDraft();
 	} else {
-		//usleep(maxDelay * 1000);
+		usleep(maxDelay * 1000);
 		startNewRound = true;
+		curRoundPingsSent = false;
 //		draftNewRound();
 	}
 }
