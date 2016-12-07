@@ -117,7 +117,7 @@ struct draftInfo {
 struct clientInfo clients[MAXCLIENTS];
 int clientCounter = 0;
 int numClients = 0; int numActiveClients = 0;
-int maxDelay = 0;
+float maxDelay;
 int draftNum = 0;
 bool timedOut = false;
 bool draftStarted;
@@ -196,7 +196,7 @@ fd_set active_fd_set, read_fd_set; // Declared here so all functions can use
  ********************************************************************/
 int main(int argc, char *argv[]) {
 	srand(unsigned (time(0)));
-
+	memset(clients,0,sizeof(clients));
 	// TODO: Give more options than this hard coded file
 	playerData = readCSV("nba1516.csv");
 	//for(int i = 0; i < playerData.size(); i++) {
@@ -235,24 +235,24 @@ int main(int argc, char *argv[]) {
  
     clilen = sizeof(cli_addr); 
     while(1) {
-    	fprintf(stderr, "Top of while\n");
+    	fprintf(stderr, "Top of while, startNewRound: %d\n", startNewRound);
    		timespec curTime;
    		clock_gettime(CLOCK_MONOTONIC,&curTime);
 
 		timespec timeToEndRound;
     	if(draftStarted && !startNewRound) {
-    		fprintf(stderr, "draftStarted && !startNewRound\n");
+//    		fprintf(stderr, "draftStarted && !startNewRound\n");
     		if(timespecLessthan(&theDraft.roundEndTime,&curTime)) {
     			fprintf(stderr, "About to endDraftRound\n");
     			endDraftRound();
     			continue;
     		} else {
-    			fprintf(stderr, "About to timespecSubtract\n");
+//    			fprintf(stderr, "About to timespecSubtract\n");
 				timespecSubtract(&theDraft.roundEndTime,&curTime,&timeToEndRound);
 				fprintf(stderr, "Time til next round: %d.%ds\n", timeToEndRound.tv_sec,timeToEndRound.tv_nsec);
 			}
     	} else {
-    		fprintf(stderr, "!draftStarted || startNewRound\n");
+//    		fprintf(stderr, "!draftStarted || startNewRound\n");
     		timeToEndRound.tv_sec = 99999;
     		timeToEndRound.tv_nsec = 0;
     	}
@@ -269,6 +269,7 @@ int main(int argc, char *argv[]) {
 
 		timedOut = true;
 
+		fprintf(stderr, "Max delay (ms): %f\n", maxDelay);
 		int timeoutSecs = min(max(((int)(maxDelay + 500) / 1000), 5), (timeToEndRound.tv_sec + 1) );
 		fprintf(stderr, "timeoutSecs: %d\n", timeoutSecs);
 		struct timeval selectTimeout = {timeoutSecs,(timeToEndRound.tv_nsec / 1000)};
@@ -295,7 +296,7 @@ int main(int argc, char *argv[]) {
 			    	newClient.headerToRead = HEADERSIZE;
 		    		newClient.active = true;
 			    	newClient.validated = false;
-			    	newClient.timeout = 50000;
+			    	newClient.timeout = 5000;
 			    	newClient.readyToDraft = false;
 
 				    bool inserted = false;
@@ -610,6 +611,7 @@ void readData(struct clientInfo *curClient) {
 			handleDraftRequest(curClient);
 		} else if(curClient->mode == PING_RESPONSE) {
 			handlePingResponse(curClient);
+			printf("maxDelay after handlePingResponse: %f\n", maxDelay);
 		} else if(curClient->mode == DRAFT_PASS) {
 			handleDraftPass(curClient);
 		} else {
@@ -732,6 +734,7 @@ void handleHello(struct clientInfo *curClient) {
     }
 
     handleListRequest(curClient);
+    if(maxDelay < curClient->timeout) maxDelay = curClient->timeout;
     //curClient->estRTT = 100;
     //curClient->pings = 50;
     //sendPing(curClient);
@@ -1040,10 +1043,14 @@ void handleExit(struct clientInfo *curClient) {
 	responseHeader.dataLength = htonl(s.length() + 1);
 
 	maxDelay = 0;
-	bool startDraft = true;
-	
+	bool startDraft = true; bool anyActive = false;
+
     for(int i = 0; i < MAXCLIENTS; i++) {
-		if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
+    	if(clients[i].active) anyActive = true;
+		if((clients[i].timeout > maxDelay) && clients[i].active) {
+			maxDelay = clients[i].timeout;
+			fprintf(stderr, "New maxDelay: %f\n", maxDelay);
+		}
 		if(clients[i].active && !clients[i].readyToDraft) startDraft = false;
     	if(clients[i].active && actualExit) {
 	    	strcpy(responseHeader.destID, clients[i].ID);
@@ -1071,7 +1078,7 @@ void handleExit(struct clientInfo *curClient) {
 		    handleListRequest(&clients[i]);
 		}
 	}
-
+	startDraft = startDraft && anyActive;
 	if(startDraft && !draftStarted) sendStartDraft();
 }
 
@@ -1332,7 +1339,7 @@ void handlePingResponse(clientInfo *curClient) {
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
 
 	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
-	//fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
+	fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
 	if(curClient->msgID != curClient->pingID) return;
 
 	if(delayms < curClient->timeout) {
@@ -1346,13 +1353,20 @@ void handlePingResponse(clientInfo *curClient) {
 		curClient->timeout = max((curClient->estRTT + (4 * curClient->devRTT)), minTimeout);
 
 		curClient->pings++;
-		//fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
+		fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
+
 		maxDelay = 0;
+		fprintf(stderr, "maxDelay set to zero: %f\n", maxDelay);
 		for(int i = 0; i < MAXCLIENTS; i++) {
-			if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
+			if((clients[i].timeout > maxDelay) && clients[i].active) {
+				fprintf(stderr, "Clients[%d].estRTT: %f, timeout %f\n", i,clients[i].estRTT,clients[i].timeout);
+				maxDelay = clients[i].timeout;
+				fprintf(stderr, "New maxDelay: %f\n", maxDelay);
+			}
 		}
 	}
 
+	fprintf(stderr, "maxDelay at end of handlePingResponse: %f\n", maxDelay);
 	//if(curClient->pings-- > 0) {
 	//	sendPing(curClient);
 	//}
@@ -1454,7 +1468,7 @@ void sendStartDraft() {
     random_shuffle(theDraft.order.begin(), theDraft.order.end());
     draftNum++;
    	//draftNewRound();
-   	usleep(maxDelay * 1000);
+   	//usleep(maxDelay * 1000);
    	draftStarted = true;
    	startNewRound = true;
 }
@@ -1511,7 +1525,7 @@ void draftNewRound() {
     }
 
     //timespec fiveSecs; fiveSecs.tv_sec = 5; fiveSecs.tv_nsec = 0;
-    timespec roundTotalTime; roundTotalTime.tv_sec = (maxDelay / 1000) + ROUNDTIME; roundTotalTime.tv_nsec = (maxDelay % 1000) * 1000000;
+    timespec roundTotalTime; roundTotalTime.tv_sec = ((int)maxDelay / 1000) + ROUNDTIME; roundTotalTime.tv_nsec = ((int)maxDelay % 1000) * 1000000;
     //fprintf(stderr, "roundTotalTime.tv_sec: %d, tv_nsec: %d\n", roundTotalTime.tv_sec, roundTotalTime.tv_nsec);
     timespec curTime;
     clock_gettime(CLOCK_MONOTONIC,&curTime);
@@ -1620,7 +1634,7 @@ void endDraftRound() {
 		fprintf(stderr, "Going to end the draft now\n");
 		endDraft();
 	} else {
-		usleep(maxDelay * 1000);
+		//usleep(maxDelay * 1000);
 		startNewRound = true;
 //		draftNewRound();
 	}

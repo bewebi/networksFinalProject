@@ -91,6 +91,8 @@ bool lastReadWasPing = false;
 bool draftInProgress = false;
 bool particpatingInDraft = false;
 
+bool printMessage = true;
+
 int curDraftIndex;
 bool requestQuietly;
 fd_set active_fd_set, read_fd_set;
@@ -172,11 +174,10 @@ int main(int argc, char *argv[]) {
     sendHello();
 
     bool exiting = false;
-    bool printMessage = true;
     while(!exiting) {
         char ch = '\0'; int i = 0; int message = -1;
         if(printMessage) {
-            fprintf(stdout, "Type 0 to send a message, 1 to see all drafted players, 2 to toggle draft readiness, 3 to log out, or 4 to quit permanently\n");
+            fprintf(stdout, "Type 0 to send a message, 1 to see all drafted players, 2 to toggle draft readiness, 3 to log out, or 4 to quit permanently\n\n");
         }
 
         read_fd_set = active_fd_set;
@@ -218,12 +219,12 @@ int main(int argc, char *argv[]) {
                     //fprintf(stderr, "about to read from server\n");
 
                     if(connected) {
+                        printMessage = false;
                         readMessage();
                     } else {
                         FD_CLR(sockfd,&read_fd_set);
                         FD_CLR(sockfd,&active_fd_set);
                     }
-                    printMessage = false;
                 }
             }
         }
@@ -366,7 +367,7 @@ void sendMessage() {
 }
 
 void readMessage() {
-    char headerBuffer[50];
+    char headerBuffer[sizeof(header)];
     int total = sizeof(header);
     int received = 0;
     int bytes;
@@ -389,9 +390,8 @@ void readMessage() {
     headerToRead.length = ntohl(headerToRead.length);
     headerToRead.msgID = ntohl(headerToRead.msgID);
 
-    //fprintf(stderr, "Before read sleep\n");
     usleep(sleepTime);
-    //fprintf(stderr, "After read sleep\n");
+
     //fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
     if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
@@ -413,8 +413,14 @@ void readMessage() {
         particpatingInDraft = false;
         //showDrafted(false);
         outputResults(headerToRead.msgID);
+        printMessage = true;
     }
     
+    if(headerToRead.type == CANNOT_DELIVER) {
+        fprintf(stdout, "The server could not deliver your message!\n");
+        printMessage = true;
+    }
+
     if(headerToRead.length > 0) {
         char dataBuffer[headerToRead.length+1];
         memset(dataBuffer,0,sizeof(dataBuffer));
@@ -432,7 +438,8 @@ void readMessage() {
             for(int i = 0; i < headerToRead.length; i++) {
                 if(dataBuffer[i] == 0) dataBuffer[i] = 32;
             }
-            fprintf(stdout,"Message from %s:\n%s\n",headerToRead.sourceID,dataBuffer);
+            fprintf(stdout,"Message from %s:\n%s\n\n",headerToRead.sourceID,dataBuffer);
+            if(strcmp(serv,headerToRead.sourceID) != 0) printMessage = true;
         }
 
         if(headerToRead.type == HELLO_ACK) {
@@ -446,13 +453,15 @@ void readMessage() {
 
         if(headerToRead.type == DRAFT_STATUS) {
             fprintf(stdout, "%s\n", dataBuffer);
+            printMessage = true;
         }
 
         if(headerToRead.type == CLIENT_LIST) {
             for(int i = 0; i < headerToRead.length; i++) {
                 if(dataBuffer[i] == 0) dataBuffer[i] = 32;
             }
-            fprintf(stdout,"Current clients:\n%s\n",dataBuffer);
+            fprintf(stdout,"Current clients:\n%s\n\n",dataBuffer);
+            printMessage = true;
         }
 
         if(headerToRead.type == PLAYER_RESPONSE) {
@@ -466,6 +475,7 @@ void readMessage() {
                 }
                 cout << '\n';
             }
+            printMessage = true;
         }
 
         if(headerToRead.type == DRAFT_STARTING) {
@@ -572,9 +582,9 @@ void readMessage() {
                 }
             }
             if(madeClaim) {
-                fprintf(stderr, "Please wait while other players respond\n\n");
+                fprintf(stdout, "Please wait while other players respond\n\n");
             } else {
-                fprintf(stderr, "Your opportunity to claim %s has passed!\n\n", dataBuffer);
+                fprintf(stdout, "Your opportunity to claim %s has passed!\n\n", dataBuffer);
             }
         }
 
@@ -586,6 +596,8 @@ void readMessage() {
                 memcpy(playerData[curDraftIndex].owner, dataBuffer, headerToRead.length+1);
                 showTeam(dataBuffer);
             }
+            fprintf(stdout, "The next round will start when all participants are done sending chats, etc.\n");
+            printMessage = true;
         }
     }
 }
