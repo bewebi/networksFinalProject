@@ -125,6 +125,7 @@ bool draftStarted;
 bool startDraft = false;
 bool startNewRound = false;
 bool curRoundPingsSent = false;
+bool newEntry = false;
 struct draftInfo theDraft;
 
 vector<playerInfo> playerData;
@@ -276,6 +277,7 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "timeoutSecs: %d\n", timeoutSecs);
 		struct timeval selectTimeout = {timeoutSecs,(timeToEndRound.tv_nsec / 1000)};
 		if(startNewRound && !curRoundPingsSent) selectTimeout = {0,1000};
+		if(newEntry) selectTimeout = {1,0};
 		read_fd_set = active_fd_set;
 		/* Block until input arrives on one or more active sockets */
 		if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, &selectTimeout) < 0) {
@@ -337,6 +339,7 @@ int main(int argc, char *argv[]) {
 				curRoundPingsSent = true;
 				timedOut = false;
 			}
+			if(newEntry) newEntry = false;
 
 		}
 
@@ -872,6 +875,7 @@ void handleHello(struct clientInfo *curClient) {
 		    handleListRequest(&clients[i]);
 		}
     }
+    newEntry = true;
 }
 
 void handleListRequest(struct clientInfo *curClient) {
@@ -1381,7 +1385,8 @@ void handlePingResponse(clientInfo *curClient) {
 		}
 	} else {
 		fprintf(stderr, "Ping took too long; ping: %d, timeout: %f \n", delayms, curClient->timeout);
-		curClient->timeout += 100.0; //maybe not working
+		curClient->timeout += 100.0; // be a little more lenient!
+		curClient->devRTT += (0.01 * curClient->estRTT);
 		fprintf(stderr, "Adjusting timeout to %f\n", curClient->timeout);
 		maxDelay = 0;
 
