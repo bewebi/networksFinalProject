@@ -235,7 +235,6 @@ int main(int argc, char *argv[]) {
  
     clilen = sizeof(cli_addr); 
     while(1) {
-    	fprintf(stderr, "Top of while, startNewRound: %d\n", startNewRound);
    		timespec curTime;
    		clock_gettime(CLOCK_MONOTONIC,&curTime);
 
@@ -269,7 +268,7 @@ int main(int argc, char *argv[]) {
 
 		timedOut = true;
 
-		fprintf(stderr, "Max delay (ms): %f\n", maxDelay);
+		//fprintf(stderr, "Max delay (ms): %f\n", maxDelay);
 		int timeoutSecs = min(max(((int)(maxDelay + 500) / 1000), 5), (timeToEndRound.tv_sec + 1) );
 		fprintf(stderr, "timeoutSecs: %d\n", timeoutSecs);
 		struct timeval selectTimeout = {timeoutSecs,(timeToEndRound.tv_nsec / 1000)};
@@ -611,7 +610,6 @@ void readData(struct clientInfo *curClient) {
 			handleDraftRequest(curClient);
 		} else if(curClient->mode == PING_RESPONSE) {
 			handlePingResponse(curClient);
-			printf("maxDelay after handlePingResponse: %f\n", maxDelay);
 		} else if(curClient->mode == DRAFT_PASS) {
 			handleDraftPass(curClient);
 		} else {
@@ -1049,7 +1047,6 @@ void handleExit(struct clientInfo *curClient) {
     	if(clients[i].active) anyActive = true;
 		if((clients[i].timeout > maxDelay) && clients[i].active) {
 			maxDelay = clients[i].timeout;
-			fprintf(stderr, "New maxDelay: %f\n", maxDelay);
 		}
 		if(clients[i].active && !clients[i].readyToDraft) startDraft = false;
     	if(clients[i].active && actualExit) {
@@ -1339,7 +1336,7 @@ void handlePingResponse(clientInfo *curClient) {
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
 
 	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
-	fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
+	//fprintf(stderr, "Ping recieved: %d, curClient->pingID: %d\n", curClient->msgID, curClient->pingID);
 	if(curClient->msgID != curClient->pingID) return;
 
 	if(delayms < curClient->timeout) {
@@ -1353,20 +1350,16 @@ void handlePingResponse(clientInfo *curClient) {
 		curClient->timeout = max((curClient->estRTT + (4 * curClient->devRTT)), minTimeout);
 
 		curClient->pings++;
-		fprintf(stderr, "Client %s has estRTT of %f, devRTT of %f, and timeout of %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
+		fprintf(stderr, "Client %s has estRTT: %f, devRTT: %f, and timeout: %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
 
 		maxDelay = 0;
-		fprintf(stderr, "maxDelay set to zero: %f\n", maxDelay);
+
 		for(int i = 0; i < MAXCLIENTS; i++) {
 			if((clients[i].timeout > maxDelay) && clients[i].active) {
-				fprintf(stderr, "Clients[%d].estRTT: %f, timeout %f\n", i,clients[i].estRTT,clients[i].timeout);
 				maxDelay = clients[i].timeout;
-				fprintf(stderr, "New maxDelay: %f\n", maxDelay);
 			}
 		}
 	}
-
-	fprintf(stderr, "maxDelay at end of handlePingResponse: %f\n", maxDelay);
 	//if(curClient->pings-- > 0) {
 	//	sendPing(curClient);
 	//}
