@@ -809,6 +809,49 @@ void handleHello(struct clientInfo *curClient) {
 	        sent+= bytes;
 	    }    	
     }
+
+	memset(&responseHeader,0,sizeof(responseHeader));
+    strcpy(responseHeader.sourceID, "Server");
+    responseHeader.msgID = htonl(0);
+
+    for(int i = 0; i < MAXCLIENTS; i++) {
+    	if(clients[i].active && (clients[i].sock != curClient->sock)) {
+	    	strcpy(responseHeader.destID, clients[i].ID);
+		    responseHeader.type = htons(CHAT);
+		    string s = curClient->ID;
+		    if(returning) {
+		    	s += " has logged back in";
+		    } else {
+		    	s += " joined for the first time";
+		    }
+		   	char stringBuffer[s.length() + 1];
+			strcpy(stringBuffer, s.c_str());
+			stringBuffer[s.length()] = '\0';
+
+	    	responseHeader.dataLength = htonl(s.length() + 1);		    
+
+	        int bytes, sent, total;
+	    	total = HEADERSIZE; sent = 0;	
+		    fprintf(stderr, "handleHello (CHAT to active clients): Writing to %s with sock %d\n", clients[i].ID,clients[i].sock);
+		    do {
+				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
+				if(bytes < 0) error("ERROR writing to socket");
+				if(bytes == 0) break;
+				sent+=bytes;
+		    } while (sent < total);
+
+		    total = strlen(stringBuffer) + 1;	
+			sent = 0;
+			while(sent < total) {
+	        	bytes = write(clients[i].sock, stringBuffer+sent, total-sent);
+		        if(bytes < 0) error("ERROR writing to socket");
+		        if(bytes == 0) break;
+	    	    sent+= bytes;
+		    }
+
+		    handleListRequest(&clients[i]);
+		}
+    }
 }
 
 void handleListRequest(struct clientInfo *curClient) {
@@ -928,7 +971,8 @@ void handleChat(struct clientInfo *sender) {
 }
 
 void handleExit(struct clientInfo *curClient) {
-
+	bool logout; bool actualExit = true;
+    string s = curClient->ID;
 	if(curClient->active && curClient->validated) {
 		//fprintf(stderr, "exit: active and validated\n");
 		int sock = curClient->sock;
@@ -938,6 +982,7 @@ void handleExit(struct clientInfo *curClient) {
 		curClient->active = false;
 		curClient->sock = -1;
 		numActiveClients--;
+		logout = true;
 	} else {
 		//if(!curClient->active) fprintf(stderr, "exit: not active\n");
 		//if(!curClient->validated) fprintf(stderr, "exit: not validated\n");
@@ -945,6 +990,7 @@ void handleExit(struct clientInfo *curClient) {
 		close(sock);
 		FD_CLR(sock, &read_fd_set);
 		FD_CLR(sock, &active_fd_set);
+		if(sock == -1) actualExit = false;
 	    for(int i = 0; i < MAXCLIENTS; i++) {
 	    	if(curClient->sock == 0) break;
 			if((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)) {
@@ -975,16 +1021,58 @@ void handleExit(struct clientInfo *curClient) {
 			}
 	    }
 	    numClients--;
+	    logout = false;
 	}
+
+	struct header responseHeader;
+	memset(&responseHeader,0,sizeof(responseHeader));
+    strcpy(responseHeader.sourceID, "Server");
+    responseHeader.msgID = htonl(0);
+	if(logout) {
+	   	s += " has logged out";
+	} else {
+	   	s += " has quit permanently";
+	}
+	char stringBuffer[s.length() + 1];
+	strcpy(stringBuffer, s.c_str());
+	stringBuffer[s.length()] = '\0';
+
+	responseHeader.dataLength = htonl(s.length() + 1);
 
 	maxDelay = 0;
 	bool startDraft = true;
-	for(int i = 0; i < MAXCLIENTS; i++) {
+	
+    for(int i = 0; i < MAXCLIENTS; i++) {
 		if((clients[i].timeout > maxDelay) && clients[i].active) maxDelay = clients[i].timeout;
 		if(clients[i].active && !clients[i].readyToDraft) startDraft = false;
-	}
-	if(startDraft && !draftStarted) sendStartDraft();
+    	if(clients[i].active && actualExit) {
+	    	strcpy(responseHeader.destID, clients[i].ID);
+		    responseHeader.type = htons(CHAT);
 
+	        int bytes, sent, total;
+	    	total = HEADERSIZE; sent = 0;	
+		    fprintf(stderr, "handleExit (CHAT to active clients): Writing to %s with sock %d\n", clients[i].ID,clients[i].sock);
+		    do {
+				bytes = write(clients[i].sock, (char *)&responseHeader+sent, total-sent);
+				if(bytes < 0) error("ERROR writing to socket");
+				if(bytes == 0) break;
+				sent+=bytes;
+		    } while (sent < total);
+
+		    total = strlen(stringBuffer) + 1;	
+			sent = 0;
+			while(sent < total) {
+	        	bytes = write(clients[i].sock, stringBuffer+sent, total-sent);
+		        if(bytes < 0) error("ERROR writing to socket");
+		        if(bytes == 0) break;
+	    	    sent+= bytes;
+		    }
+
+		    handleListRequest(&clients[i]);
+		}
+	}
+
+	if(startDraft && !draftStarted) sendStartDraft();
 }
 
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
