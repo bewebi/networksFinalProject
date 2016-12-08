@@ -1,3 +1,9 @@
+// Bernie Birnbaum and Shawyoun Saidon
+// Comp 112 Final Project
+// Tufts University
+
+// This whole section with includes, defines, and struct definitions would
+// ideally be in a seperate header file
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,6 +89,7 @@ bool connected;
 bool draftJustStarted = false;
 
 vector<playerInfo> playerData;
+
 char username[IDLENGTH];
 char pword[IDLENGTH];
 char serv[IDLENGTH] = "Server";
@@ -103,7 +110,7 @@ fd_set active_fd_set, read_fd_set;
  ********************************************************************/
 int main(int argc, char *argv[]) {
     if(argc != 3) {
-    fprintf(stdout, "Usage: ./client comp112-0x.cs.tufts.edu <port>\n");
+    fprintf(stdout, "Usage: ./client <host> <port>\n");
     return 1;
     }
     fprintf(stdout, "Welcome to Bernie and Shawyoun's final project!\n\n");
@@ -155,7 +162,7 @@ int main(int argc, char *argv[]) {
     pword[19] = '\0';
     fprintf(stdout, "Your password is %s\n\n", pword);
 
-    fprintf(stdout, "How many ms of latency do you want to reads and writes?\n");
+    fprintf(stdout, "How many ms of latency do you want to add to reads and writes?\nNote: More than 2500 may make your user experience subpar\n");
     char buffer[8];
     i = 0;
     while(read(0,&ch,1) > 0){
@@ -171,9 +178,11 @@ int main(int argc, char *argv[]) {
 
     fprintf(stdout, "Adding %d ms latency on reads and writes\n", sleepTime);
     sleepTime = sleepTime * 1000; // *1000 for nanoseconds to millisecons
+
     sendHello();
 
     bool exiting = false;
+
     while(!exiting) {
         char ch = '\0'; int i = 0; int message = -1;
         if(printMessage) {
@@ -206,7 +215,7 @@ int main(int argc, char *argv[]) {
                     } else if (message == 2) {
                         sendStartDraft();
                     } else if (message == 3) {
-                        //sendExit();
+                        //sendExit(); // We're not going to formally quit
                         exiting = true;
                         break;
                     } else if (message == 4) {
@@ -216,8 +225,6 @@ int main(int argc, char *argv[]) {
                     }
                 } else {
                     // input from server
-                    //fprintf(stderr, "about to read from server\n");
-
                     if(connected) {
                         printMessage = false;
                         readMessage();
@@ -230,6 +237,7 @@ int main(int argc, char *argv[]) {
         }
 
     }
+
     fprintf(stdout, "Signed off! Have a nice day\n");
     close(sockfd);
 
@@ -241,12 +249,13 @@ int main(int argc, char *argv[]) {
  *      Section 1: Highest level send (write) and read methods      *
  ********************************************************************/
 void sendMessage() {
+    // We're gonna build this message piece by piece
     struct header headerToSend;
     char ch; int i = 0;
     char buffer[1028]; char intBuffer[sizeof(int)];
     memset(&headerToSend, 0, sizeof(headerToSend));
     memset(buffer,0,sizeof(buffer));
-    fprintf(stdout, "What to send now?\n3 = LIST_REQUEST, 5 = CHAT, 9 = PLAYER_REQUEST, 11 = DRAFT_REQUEST \n");
+    fprintf(stdout, "What to send now?\n0 to get list of clients, 1 to send chat, 2 to get current player info, 3 to draft a player \n");
     while(read(0,&ch,1) > 0){
         if(ch == 10) break;
         buffer[i] = (ch - 48);
@@ -259,21 +268,24 @@ void sendMessage() {
 
     //memcpy(&headerToSend.type,type, sizeof(short));
     fprintf(stdout, "You selected type %hu\n",type);
-    if(type != 3 && type != 5 && type != 9 && type != 11) {
+    if(type > 4) {
         fprintf(stdout, "This is not a valid type; aborting message send\n");
         return;
     }
 
-    if(type == PLAYER_REQUEST) {
+    if(type == 0) {
+        headerToSend.type = LIST_REQUEST;
+    } else if(type == 1) {
+        headerToSend.type = CHAT;
+    } else if(type == 2) {
         sendPlayerRequest(false);
         return;
+    } else if(type == 3) {
+        headerToSend.type = DRAFT_REQUEST;
     }
-    headerToSend.type = type;
-
-    i = 0;
 
     memcpy(headerToSend.sourceID,username,strlen(username));
-    //fprintf(stdout, "sourceID is %s\n",headerToSend.sourceID);
+    
     i = 0;
     memset(buffer,0,sizeof(buffer));
     if(headerToSend.type == CHAT) {
@@ -288,17 +300,13 @@ void sendMessage() {
         i = 7;
     }
     memcpy(headerToSend.destID,buffer,i);
-    //fprintf(stdout, "destID is %s\n",headerToSend.destID);
 
-    i = 0;
     memset(buffer,0,sizeof(buffer));
     if(headerToSend.type == CHAT) {
         headerToSend.msgID = ++myMsgID;
     } else {
         headerToSend.msgID = 0;
     }
-    //fprintf(stdout, "Your message has msgID %d\n",headerToSend.msgID);
-
 
     i = 0;
     memset(buffer,0,sizeof(buffer));
@@ -311,7 +319,6 @@ void sendMessage() {
         }
         buffer[i] = '\0';
         i++;
-        // if(i > 1) fprintf(stdout, "Your message of size %d is as follows: %s\n\n",i,buffer);
     } else if(headerToSend.type == DRAFT_REQUEST) {
         if(connected) sendPlayerRequest(true);
         fprintf(stdout, "Which player would you like to draft?\n");
@@ -323,6 +330,7 @@ void sendMessage() {
         buffer[i] = '\0';
         i++;
 
+        // If we can resolve this without contact the server, that would be ideal
         if((!playerExists(playerData,buffer) || playerDrafted(playerData,buffer))) {
             fprintf(stdout, "The player you have selected does not exist is or is already drafted.\n");
             return;
@@ -335,7 +343,9 @@ void sendMessage() {
     int total = sizeof(headerToSend);
     int sent = 0;
     int bytes;
-    usleep(sleepTime);
+
+    usleep(sleepTime); // Simulating latency
+
     do {
         bytes = write(sockfd,(char *)&headerToSend+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -358,6 +368,7 @@ void sendMessage() {
 
     fprintf(stdout, "Sent!\n");
     if(type == LIST_REQUEST || type == PLAYER_REQUEST) {
+        // These types want responses ASAP
         lastReadWasPing = true;
         while(lastReadWasPing) readMessage();
     }
@@ -390,9 +401,12 @@ void readMessage() {
     headerToRead.length = ntohl(headerToRead.length);
     headerToRead.msgID = ntohl(headerToRead.msgID);
 
-    usleep(sleepTime);
+    usleep(sleepTime); // Simulate latency
 
     //fprintf(stdout,"Header Recieved: type: %hu, sourceID: %s, destID: %s, length: %d, msgID: %d\n",headerToRead.type,headerToRead.sourceID,headerToRead.destID,headerToRead.length,headerToRead.msgID);
+
+    // Handle each type specially, here in the readMessage method
+    // TODO: Make these into seperate methods
     if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
         return;
@@ -411,7 +425,7 @@ void readMessage() {
         draftInProgress = false;
         roundLength = 0;
         particpatingInDraft = false;
-        //showDrafted(false);
+        
         outputResults(headerToRead.msgID);
         printMessage = true;
     }
@@ -421,6 +435,7 @@ void readMessage() {
         printMessage = true;
     }
 
+    // The remaining message types involve data written
     if(headerToRead.length > 0) {
         char dataBuffer[headerToRead.length+1];
         memset(dataBuffer,0,sizeof(dataBuffer));
@@ -458,22 +473,22 @@ void readMessage() {
 
         if(headerToRead.type == CLIENT_LIST) {
             for(int i = 0; i < headerToRead.length; i++) {
-                if(dataBuffer[i] == 0) dataBuffer[i] = 32;
+                if(dataBuffer[i] == '\0') dataBuffer[i] = ' ';
             }
             fprintf(stdout,"Current clients:\n%s\n\n",dataBuffer);
             printMessage = true;
         }
 
         if(headerToRead.type == PLAYER_RESPONSE) {
-            //fprintf(stdout, "augCSV: \n %s", dataBuffer);
             playerData = readAugmentedCSV(dataBuffer);
             if(!requestQuietly) {
+                // Proof that we got something; printing it all would be overwhelming
                 fprintf(stdout, "Here is partial current player data:\n");
                 for(int i = 0; i < playerData.size(); i++) {
                     if(i%50 == 0)
                     cout << playerToString(playerData[i]) << '\n';
                 }
-                cout << '\n';
+                cout << "\n\n";
             }
             printMessage = true;
         }
@@ -486,7 +501,6 @@ void readMessage() {
             roundLength = (ROUNDLENGTH_MASK & headerToRead.msgID);
             fprintf(stdout, "%s\n", dataBuffer);
             if(particpatingInDraft) fprintf(stdout, "Each round will last %d seconds. Don't get left behind!\n", roundLength);
-
         }
 
         if(headerToRead.type == DRAFT_ROUND_START && draftInProgress) {
@@ -514,10 +528,10 @@ void readMessage() {
             }
 
             if(!particpatingInDraft) return;
-
+            // Some context for those actually participating:
             fprintf(stdout, "Stats: Team: %s, Age: %d, FG PCT: %3.1f, O-Rating: %4.1f, D-Rating: %4.1f, Min/G: %3.1f\n", 
                 playerData[curDraftIndex].TEAM_ABBREVIATION,playerData[curDraftIndex].AGE,playerData[curDraftIndex].FG_PCT*100,playerData[curDraftIndex].OFF_RATING,playerData[curDraftIndex].DEF_RATING,playerData[curDraftIndex].MIN);
-            fprintf(stdout, "Press 0 to pass, 1 to attempt to claim!\n");
+            fprintf(stdout, "1 to attempt to claim! Anything else to pass\n");
             fd_set stdin_set;
 
             bool madeClaim = false;
@@ -529,6 +543,8 @@ void readMessage() {
             timeout.tv_sec = roundLength;
             timeout.tv_usec = 0;
 
+            // Client gets a window of exactly roundLength to respond
+            // Poll would probably be better here?
             if(select(FD_SETSIZE, &stdin_set, NULL, NULL, &timeout) < 0) {
                 error("ERROR on select");
             }
@@ -563,7 +579,7 @@ void readMessage() {
                         int total = sizeof(draftResponse);
                         int sent = 0;
                         int bytes;
-                        usleep(sleepTime);
+                        usleep(sleepTime); // Simulate that latency
                         do {
                             bytes = write(sockfd,(char *)&draftResponse+sent,total-sent);
                             if(bytes < 0) error("ERROR writing message to socket");
@@ -607,6 +623,10 @@ void readMessage() {
 /********************************************************************
  *              Section 2: Send methods of specific types           *
  ********************************************************************/
+
+/* Sends of specific types
+   All are fairly self explanatory
+   Should probably have one of these for every type */
 void sendHello() {
     struct header helloHeader;
     memset(&helloHeader, 0, sizeof(helloHeader));
@@ -619,7 +639,7 @@ void sendHello() {
     int total = sizeof(helloHeader);
     int sent = 0;
     int bytes;
-    usleep(sleepTime);
+    usleep(sleepTime); // Simulate latency
     do {
         bytes = write(sockfd,(char *)&helloHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -659,7 +679,7 @@ void sendPlayerRequest(bool quiet) {
     int total = sizeof(playerReqHeader);
     int sent = 0;
     int bytes;
-    usleep(sleepTime);
+    usleep(sleepTime); // Simulate latency
     do {
         bytes = write(sockfd,(char *)&playerReqHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -676,7 +696,6 @@ void sendPlayerRequest(bool quiet) {
 }
 
 void sendStartDraft() {
-    //fprintf(stderr, "In sendStartDraft\n");
     struct header startDraftHeader;
     memset(&startDraftHeader, 0, sizeof(startDraftHeader));
     startDraftHeader.type = htons(START_DRAFT);
@@ -685,11 +704,10 @@ void sendStartDraft() {
     startDraftHeader.length = htonl(0);
     startDraftHeader.msgID = htonl(0);
 
-    //fprintf(stderr, "Made sendStartDraft header\n");
     int total = sizeof(startDraftHeader);
     int sent = 0;
     int bytes;
-    usleep(sleepTime);
+    usleep(sleepTime); // Simulate latency
     do {
         bytes = write(sockfd,(char *)&startDraftHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -715,7 +733,7 @@ void sendExit() {
     int total = sizeof(exitHeader);
     int sent = 0;
     int bytes;
-    usleep(sleepTime);
+    usleep(sleepTime); // Simulate latency
     do {
         bytes = write(sockfd,(char *)&exitHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -732,6 +750,7 @@ void replyPing(int pingID) {
     struct header pingReplyHeader;
     memset(&pingReplyHeader, 0, sizeof(pingReplyHeader));
 
+    // Not actually doing anything with this
     gettimeofday(&curTime,NULL);
     memcpy(timeBuffer,&curTime,sizeof(curTime));
 
@@ -745,9 +764,8 @@ void replyPing(int pingID) {
     int sent = 0;
     int bytes;
 
-    //fprintf(stderr, "About to sleep for %d ms\n", sleepTime);
-    usleep(sleepTime);
-    //fprintf(stderr, "Done sleeping!\n");
+    usleep(sleepTime); // Simulate latency (this time really matters!)
+
     do {
         bytes = write(sockfd,(char *)&pingReplyHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
@@ -756,7 +774,7 @@ void replyPing(int pingID) {
        //fprintf(stdout,"Sent %d bytes of the header\n",sent);
     } while (sent < total);
 
-    // Note: This time stamp is not actually used, but hey
+    // This time stamp is not actually used, but hey
     total = sizeof(curTime);
     sent = 0;
     while(sent < total) {
@@ -774,10 +792,11 @@ void replyPing(int pingID) {
  ********************************************************************/
 void showDrafted(bool checkServer) {
     cout << "\nAll drafted players: \n";
-    if(connected && checkServer) sendPlayerRequest(true);
-    //usleep(500000);
+    if(connected && checkServer) sendPlayerRequest(true); // Don't bother if the server isn't there
+
     for(int i = 0; i < playerData.size(); i++) {
         if(strcmp(playerData[i].owner, "Server") != 0) {
+            // Should probably add QUITTER as one to ignore as well
             cout << playerToString(playerData[i]) << '\n';
         }
     }
