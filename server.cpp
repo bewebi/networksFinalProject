@@ -710,22 +710,20 @@ void readPword(struct clientInfo *curClient) {
  *			Section 3: Handlers for specific message types			*
  ********************************************************************/
 void handleHello(struct clientInfo *curClient) {
-    /* Add client ID to clientInfo */
-    // memcpy(curClient->ID, ID, IDLENGTH);
+
     bool returning = false;
 
 	if(curClient->validated == false) {
-		returning = true;
+		returning = true; // New clients are automatically validated before getting here
 		
 		for(int i = 0; i < MAXCLIENTS; i++) {
+			// There are two clients with the same ID, let's get them both
 			if((strcmp(clients[i].ID, curClient->ID) == 0) && !(clients[i].sock == curClient->sock)) {
-				//fprintf(stderr, "In handleHello, clients[i].ID: %s with sock: %i and curClient->ID: %s with sock: %i\n",
-				//	clients[i].ID,clients[i].sock,curClient->ID,curClient->sock);
 				if(strcmp(clients[i].pword, curClient->pword) == 0) {
-					//fprintf(stderr, "Password matches password of existing client, removing duplicate\n");
+					//fprintf(stderr, "Password matches password of existing client, removing placeholder\n");
 					curClient->validated = true;
-					curClient->readyToDraft = clients[i].readyToDraft;
-					handleError(&clients[i]);
+					curClient->readyToDraft = clients[i].readyToDraft; // If the client was previously ready to draft, they (hopefully) still are
+					handleError(&clients[i]); // Remove the old client without removing all trace of the ID which the new client also has
 				} else {
 					//fprintf(stderr, "Password does not match existing client! You're fired!\n");
 					handleError(curClient);
@@ -738,6 +736,7 @@ void handleHello(struct clientInfo *curClient) {
 	char helloMessage[50];
 	memset(helloMessage,0,50);
 
+	// I later learned easier ways to to this but hey
 	if(returning) {
 		strcpy(helloMessage,"Welcome back ");
 		memcpy(helloMessage + strlen(helloMessage), curClient->ID, strlen(curClient->ID));
@@ -760,7 +759,7 @@ void handleHello(struct clientInfo *curClient) {
 	    responseHeader.msgID = htonl(0);
 	}
 	
-    //fprintf (stderr, "HELLO_ACK responseHeader: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", responseHeader.type, responseHeader.sourceID, responseHeader.destID, responseHeader.dataLength, responseHeader.msgID);
+    //fprintf (stderr, "HELLO_ACK responseHeader: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", ntohs(responseHeader.type), responseHeader.sourceID, responseHeader.destID, ntohl(responseHeader.dataLength), ntohl(responseHeader.msgID));
 
     /* send HELLO_ACK */
     int bytes, sent, total;
@@ -784,11 +783,13 @@ void handleHello(struct clientInfo *curClient) {
     }
 
     handleListRequest(curClient);
-    if(maxDelay < curClient->timeout) maxDelay = curClient->timeout;
-    //curClient->estRTT = 100;
-    //curClient->pings = 50;
-    //sendPing(curClient);
 
+    // curClient->timeout should be the default
+    if(maxDelay < curClient->timeout) maxDelay = curClient->timeout;
+
+	// If the client had previously participated in the draft
+	// Note: All clients are set to not ready at the end of the draft so a 
+	// client will only return to a draft they were previously involved in
     if(draftStarted && curClient->readyToDraft) {
     	struct header responseHeader;
 		memset(&responseHeader,0,sizeof(responseHeader));
@@ -826,6 +827,7 @@ void handleHello(struct clientInfo *curClient) {
 	    }
     }
 
+    // Even if the client isn't participating, they need to get the information about the ongoing draft
     if(draftStarted && !curClient->readyToDraft) {
 	   	struct header responseHeader;
 		memset(&responseHeader,0,sizeof(responseHeader));
@@ -845,7 +847,7 @@ void handleHello(struct clientInfo *curClient) {
 
         int bytes, sent, total;
 	    total = HEADERSIZE; sent = 0;	
-	    fprintf(stderr, "handleHello (draftStarted, client not read): Writing to %s with sock %d\n", curClient->ID,curClient->sock);
+	    fprintf(stderr, "handleHello (draftStarted, client not ready): Writing to %s with sock %d\n", curClient->ID,curClient->sock);
 	    do {
 			bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
 			if(bytes < 0) error("ERROR writing to socket");
@@ -863,6 +865,7 @@ void handleHello(struct clientInfo *curClient) {
 	    }    	
     }
 
+    // Tell everyone else a client has logged in
 	memset(&responseHeader,0,sizeof(responseHeader));
     strcpy(responseHeader.sourceID, "Server");
     responseHeader.msgID = htonl(0);
@@ -905,9 +908,12 @@ void handleHello(struct clientInfo *curClient) {
 		    handleListRequest(&clients[i]);
 		}
     }
+
+    // Shorten the select timeout to get the new client a ping ASAP
     newEntry = true;
 }
 
+// Relic of Assignment 2 without character limit
 void handleListRequest(struct clientInfo *curClient) {
     /* construct IDs buffer */
     char IDBuffer[MAXCLIENTS * (IDLENGTH + 2)];
@@ -921,7 +927,6 @@ void handleListRequest(struct clientInfo *curClient) {
 		if(clients[i].sock != NULL) {
 		    IDLength = strlen(clients[i].ID);
 		    IDLength++;
-		    //if((IDLength + bufferIndex) < MAXDATASIZE) {
 			strcpy(&IDBuffer[bufferIndex], clients[i].ID);
 			bufferIndex = bufferIndex + IDLength;
 
@@ -930,12 +935,8 @@ void handleListRequest(struct clientInfo *curClient) {
 				IDBuffer[bufferIndex] = ' ';
 				bufferIndex++;
 			}
-	    //}
 		}
     }
-	
-	//IDBuffer[bufferIndex] = '\0';
-	//bufferIndex++;
 
     /* build CLIENT_LIST header */
     struct header responseHeader;
@@ -961,13 +962,14 @@ void handleListRequest(struct clientInfo *curClient) {
     /* send IDBuffer */
     total = bufferIndex; sent = 0;
     do {
-	bytes = write(curClient->sock, (char *)&IDBuffer+sent, total-sent);
-	if(bytes < 0) error("ERROR writing to socket");
-	if(bytes == 0) break;
-	sent+=bytes;
+		bytes = write(curClient->sock, (char *)&IDBuffer+sent, total-sent);
+		if(bytes < 0) error("ERROR writing to socket");
+		if(bytes == 0) break;
+		sent+=bytes;
     } while (sent < total);
 }
 
+// Relic from Assignment 2
 void handleChat(struct clientInfo *sender) {
     int i; int badRecipient = 1;
     struct clientInfo *receiver = 0;
@@ -987,8 +989,6 @@ void handleChat(struct clientInfo *sender) {
 		handleCannotDeliver(sender);
 		return;
     }
-
-    //sendPing(receiver);
 
     /* build CHAT header */
     struct header responseHeader;
@@ -1016,9 +1016,7 @@ void handleChat(struct clientInfo *sender) {
     total = sender->totalDataExpected; sent = 0;
     do {
 		bytes = write(receiver->sock, (char *)&sender->partialData[0]+sent, total-sent);
-		//write(1, (char *)&sender->partialData[0]+sent, bytes);
 		if(bytes < 0) error("ERROR writing to socket");
-		//fprintf(stderr,"in handleChat partialData bytes: %d\n", bytes);
 		if(bytes == 0) break;
 		sent+=bytes;
     } while (sent < total);
@@ -1027,8 +1025,9 @@ void handleChat(struct clientInfo *sender) {
 void handleExit(struct clientInfo *curClient) {
 	bool logout; bool actualExit = true;
     string s = curClient->ID;
+
 	if(curClient->active && curClient->validated) {
-		//fprintf(stderr, "exit: active and validated\n");
+		// Client is simply logging out
 		int sock = curClient->sock;
 		close(sock);
 		FD_CLR(sock, &read_fd_set);
@@ -1038,17 +1037,18 @@ void handleExit(struct clientInfo *curClient) {
 		numActiveClients--;
 		logout = true;
 	} else {
-		//if(!curClient->active) fprintf(stderr, "exit: not active\n");
-		//if(!curClient->validated) fprintf(stderr, "exit: not validated\n");
+		// Client either quit permanently or is being booted
 		int sock = curClient->sock;
 		close(sock);
 		FD_CLR(sock, &read_fd_set);
 		FD_CLR(sock, &active_fd_set);
-		if(sock == -1) actualExit = false;
+		if(sock == -1) actualExit = false; // This is a case of duplicate being deleted when the user logs back in
 	    for(int i = 0; i < MAXCLIENTS; i++) {
-	    	if(curClient->sock == 0) break;
+	    	if(curClient->sock == 0) break; // Don't remember what this is about, but it's working so why mess?
 			if((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)) {
+				// Client quit permanently
 				if(!curClient->validated && !draftStarted) {
+					// Release client's players to everyone else
 					for(int i = 0; i < playerData.size(); i++) {
 						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
 							memset(playerData[i].owner,0,IDLENGTH);
@@ -1057,12 +1057,14 @@ void handleExit(struct clientInfo *curClient) {
 					}
 				}
 				if(!curClient->validated && draftStarted) {
+					// Remove client's players from the player pool
 					for(int i = 0; i < playerData.size(); i++) {
 						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
 							memset(playerData[i].owner,0,IDLENGTH);
 							strcpy(playerData[i].owner,"QUITTER");
 						}
 					}
+					// Also take their team away
 					for(int i = 0; i < theDraft.teams.size(); i++) {
 						if(strcmp(curClient->ID,theDraft.teams[i].owner) == 0) {
 							memset(theDraft.teams[i].owner,0,IDLENGTH);
@@ -1078,6 +1080,7 @@ void handleExit(struct clientInfo *curClient) {
 	    logout = false;
 	}
 
+	// Give everyone else the bad news, also see if the draft is ready now that a client has left
 	struct header responseHeader;
 	memset(&responseHeader,0,sizeof(responseHeader));
     strcpy(responseHeader.sourceID, "Server");
@@ -1094,15 +1097,15 @@ void handleExit(struct clientInfo *curClient) {
 	responseHeader.dataLength = htonl(s.length() + 1);
 
 	maxDelay = 0;
-	bool startDraft = true; bool anyActive = false;
+	startDraft = true; bool anyActive = false;
 
     for(int i = 0; i < MAXCLIENTS; i++) {
-    	if(clients[i].active) anyActive = true;
+    	if(clients[i].active) anyActive = true; // Only want to start draft if there is someone there to participate!
 		if((clients[i].timeout > maxDelay) && clients[i].active) {
 			maxDelay = clients[i].timeout;
 		}
-		if(clients[i].active && !clients[i].readyToDraft) startDraft = false;
-    	if(clients[i].active && actualExit) {
+		if(clients[i].active && !clients[i].readyToDraft) startDraft = false; // If anyone is still not ready, let's not draft
+    	if(clients[i].active && actualExit) { // Only send a message if someone actually left
 	    	strcpy(responseHeader.destID, clients[i].ID);
 		    responseHeader.type = htons(CHAT);
 
@@ -1128,36 +1131,16 @@ void handleExit(struct clientInfo *curClient) {
 		    handleListRequest(&clients[i]);
 		}
 	}
-	startDraft = startDraft && anyActive;
-	if(startDraft && !draftStarted) sendStartDraft();
+	if(draftStarted) startDraft = false; // No need to start if it's already underway
+	startDraft = startDraft && anyActive; // If everything checks out, draft will start at next timeout
 }
 
+// Unecessary holdover from Assignment 2
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
-    /* build CLIENT_ALREADY_PRESENT header */
-	/*
-    struct header responseHeader;
-    responseHeader.type = htons(ERROR);
-    strcpy(responseHeader.sourceID, "Server");
-    memcpy(responseHeader.destID, ID, IDLENGTH);
-    responseHeader.dataLength = htonl(0);
-    responseHeader.msgID = htonl(0);
-	*/
-    //fprintf (stderr, "CLIENT_ALREADY_PRESENT responseHeader: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", responseHeader.type, responseHeader.sourceID, responseHeader.destID, responseHeader.dataLength, responseHeader.msgID);
-
-    /* send CLIENT_ALREADY_PRESENT */
-    /*
-    int bytes, sent, total;
-    total = HEADERSIZE; sent = 0;
-    do {
-		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
-		if(bytes < 0) error("ERROR writing to socket");
-		if(bytes == 0) break;
-		sent+=bytes;
-    } while (sent < total);
-	*/
     handleExit(curClient);
 }
 
+// Relic of Assignment 2
 void handleCannotDeliver(struct clientInfo *curClient) {
     /* build CANNOT_DELIVER header */
     struct header responseHeader;
@@ -1181,6 +1164,7 @@ void handleCannotDeliver(struct clientInfo *curClient) {
     } while (sent < total);
 }
 
+// Relic from Assignment 2
 void handleError(struct clientInfo *curClient) {
 	if(curClient->sock != -1) {
 	    struct header responseHeader;
@@ -1190,7 +1174,7 @@ void handleError(struct clientInfo *curClient) {
 	    responseHeader.dataLength = htonl(0);
     	responseHeader.msgID = htonl(curClient->msgID);
 	
-	    fprintf (stderr, "ERROR responseHeader: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", responseHeader.type, responseHeader.sourceID, responseHeader.destID, responseHeader.dataLength, responseHeader.msgID);
+	    // fprintf (stderr, "ERROR responseHeader: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", responseHeader.type, responseHeader.sourceID, responseHeader.destID, responseHeader.dataLength, responseHeader.msgID);
 
     	/* send ERROR */
 	    int bytes, sent, total;
@@ -1208,10 +1192,12 @@ void handleError(struct clientInfo *curClient) {
     handleExit(curClient);
 }
 
+/* Send client all player data */
 void handlePlayerRequest(struct clientInfo *curClient) {
-	//sendPing(curClient);
+
 	string augCSV = vectorToAugmentedCSV(playerData);
-    /* construct IDs buffer */
+
+	// There is certainly a better way to do this
     char augCSVBuffer[augCSV.size()];
     memset(augCSVBuffer, 0, augCSV.size());
 
@@ -1250,25 +1236,23 @@ void handlePlayerRequest(struct clientInfo *curClient) {
     } while (sent < total);
 }
 
+/* client has requested to draft a particular player */
 void handleDraftRequest(clientInfo *curClient) {
-	//string playerName = curClient->partialData;
-
 	//fprintf(stderr, "Recieved draft request from %s for %s\n", curClient->ID, curClient->partialData);
-	//playerInfo playerToDraft;
 	if(draftStarted) {
 		if(strcmp(playerData[theDraft.order[theDraft.index]].PLAYER_NAME,curClient->partialData) == 0) {
 			for(int i = 0; i < theDraft.teams.size(); i++) {
+				// Find this client's team; if not found nothing really happens
 				if(strcmp(theDraft.teams[i].owner,curClient->ID) == 0) {
-					//fprintf(stderr, "Request from team with owner: %s\n", theDraft.teams[i].owner);
+					// Make the modified timestamp
 					timespec adjustedTimeReceived;
 					clock_gettime(CLOCK_MONOTONIC,&theDraft.teams[i].adjustedTimeReceived);
-					//fprintf(stderr, "maxDelay - curClient->estRTT: %f\n", maxDelay - curClient->estRTT);
+					
 					int handicap = maxDelay - curClient->estRTT;
 					//fprintf(stderr, "Adding %d seconds and %d useconds to adjustedTimeReceived\n", handicap / 1000, (handicap % 1000) * 1000000);
 					theDraft.teams[i].adjustedTimeReceived.tv_sec += handicap / 1000;
 					theDraft.teams[i].adjustedTimeReceived.tv_nsec += ((handicap % 1000) * 1000000);
 
-					//theDraft.teams[i].adjustedTimeReceived = adjustedTimeReceived;
 					//fprintf(stderr, "%s's adjustedTimeReceived.tv_sec and tv_nsec: %d, %d\n", theDraft.teams[i].owner,theDraft.teams[i].adjustedTimeReceived.tv_sec, theDraft.teams[i].adjustedTimeReceived.tv_nsec);
 					theDraft.teams[i].responseRecieved = true;
 					if(roundIsOver()) endDraftRound();
@@ -1278,9 +1262,7 @@ void handleDraftRequest(clientInfo *curClient) {
 			//fprintf(stderr, "Draft request for invalid player recieved from %s\n", curClient->ID);
 		}
 	} else {
-//		fprintf(stderr, "Sleeping for %f milliseconds\n", (maxDelay - curClient->estRTT));
-//		usleep((maxDelay - curClient->estRTT) * 1000);
-
+		// Pre-draft drafting is a bit more chill
 		for(int i = 0; i < playerData.size(); i++) {
 			if(strcmp(playerData[i].PLAYER_NAME, curClient->partialData) == 0) {
 				if(strcmp(playerData[i].owner,"Server") == 0) {
@@ -1291,6 +1273,7 @@ void handleDraftRequest(clientInfo *curClient) {
 			}
 		}
 
+		// Tell everyone the news (by sending them a ton of data...DoS attack potential here!)
 		for(int i = 0; i < MAXCLIENTS; i++) {
 			if(clients[i].active) {
 				handlePlayerRequest(&clients[i]);		
@@ -1299,9 +1282,8 @@ void handleDraftRequest(clientInfo *curClient) {
 	}
 }
 
+/* client doesn't want this player, but wants to keep things moving */
 void handleDraftPass(clientInfo *curClient) {
-	//fprintf(stderr, "In handleDraftPass\n");
-	//fprintf(stderr, "Player to draft: %s, player recieved: %s\n", playerData[theDraft.index].PLAYER_NAME,curClient->partialData);
 	if(strcmp(playerData[theDraft.order[theDraft.index]].PLAYER_NAME,curClient->partialData) == 0) {
 		for(int i = 0; i < theDraft.teams.size(); i++) {
 			if(strcmp(theDraft.teams[i].owner,curClient->ID) == 0) {
@@ -1312,8 +1294,10 @@ void handleDraftPass(clientInfo *curClient) {
 	}
 }
 
+/* client changed their mind about if they're ready to draft */
 void handleStartDraft(clientInfo *curClient) {
 	curClient->readyToDraft = !curClient->readyToDraft;
+
 	string s;
 
 	int readyClients = 0;
@@ -1335,9 +1319,11 @@ void handleStartDraft(clientInfo *curClient) {
 			s = "You, "; s += curClient->ID; s += ", are not ready to draft. ";
 		}
 
+		// This is info we should probably send to everyone
 		s += "There are "; s += to_string(readyClients); s += " clients ready and ";
 		s += to_string(totalClients - readyClients); s += " that are not ready.\n";
 	} else {
+		// Not sure what the client is hoping to accomplish here
 		s = "The draft is already underway!\n";
 	}
 
@@ -1373,29 +1359,27 @@ void handleStartDraft(clientInfo *curClient) {
     }
 
     if((totalClients == readyClients) && !draftStarted) {
-    	//usleep(maxDelay * 1000);
     	startDraft = true;
-//    	sendStartDraft();
-//    	draftStarted = true;
     }
 }
 
-
+/* a client pinged us back! */
 void handlePingResponse(clientInfo *curClient) {
+	if(curClient->pingRcvd != curClient->pingSent) return; // If pings are out of sync God help us...or just ignore it
+
 	struct timespec sentTime, curTime;
 	clock_gettime(CLOCK_MONOTONIC,&curTime);
-	memcpy((char *)&sentTime,curClient->partialData,sizeof(sentTime));
+	memcpy((char *)&sentTime,curClient->partialData,sizeof(sentTime)); // Time ping was sent
 
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
 
 	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
 	fprintf(stderr, "Ping recieved from %s: %d, curClient->pingSent: %d\n", curClient->ID, curClient->msgID, curClient->pingSent);
 	curClient->pingRcvd = curClient->msgID;
-	if(curClient->pingRcvd != curClient->pingSent) return;
 
 	if(delayms < curClient->timeout) {
-		if(curClient->estRTT == 0) {
-			curClient->estRTT = delayms;
+		if(curClient->estRTT == 0) { // First ping!
+			curClient->estRTT = (float)delayms;
 		} else {
 			curClient->estRTT = (alpha * curClient->estRTT) + (delayms * (1.0 - alpha));
 		}
@@ -1406,6 +1390,7 @@ void handlePingResponse(clientInfo *curClient) {
 		curClient->pings++;
 		fprintf(stderr, "Client %s has estRTT: %f, devRTT: %f, and timeout: %f\n", curClient->ID,curClient->estRTT,curClient->devRTT,curClient->timeout);
 
+		// Motif for updating maxDelay...if it's possible to recduce it we want to!
 		maxDelay = 0;
 
 		for(int i = 0; i < MAXCLIENTS; i++) {
@@ -1418,6 +1403,7 @@ void handlePingResponse(clientInfo *curClient) {
 		curClient->timeout += (0.02 * curClient->timeout); // be a little more lenient!
 		curClient->devRTT += (0.02 * curClient->estRTT);
 		fprintf(stderr, "Adjusting timeout to %f\n", curClient->timeout);
+		
 		maxDelay = 0;
 
 		for(int i = 0; i < MAXCLIENTS; i++) {
@@ -1426,9 +1412,6 @@ void handlePingResponse(clientInfo *curClient) {
 			}
 		}
 	}
-	//if(curClient->pings-- > 0) {
-	//	sendPing(curClient);
-	//}
 }
 
 
