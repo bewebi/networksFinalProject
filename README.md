@@ -8,9 +8,9 @@ Compile client as follows: <br>
 <tt>g++ -std=c++11 player.cpp client.cpp -o client</tt> <br>
 
 Run server with:
-<tt>./server &ltport&rt </tt> <br>
+<tt>./server (port) </tt> <br>
 Run client with:
-<tt>./client &lthost&rt &ltport&rt</tt>
+<tt>./client (host) (port)</tt>
 
 ##Use cases:
 Run the server. <br>
