@@ -17,6 +17,9 @@
 #include <math.h>
 #include <iomanip>
 #include "player.h"
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include "ssl_utils.h"
 
 #define HELLO 1
 #define HELLO_ACK 2
@@ -42,6 +45,10 @@
 #define IDLENGTH 20
 #define PARTICIPATING_MASK 256
 #define ROUNDLENGTH_MASK 255
+
+
+SSL_CTX * ctx;
+SSL * ssl;
 
 struct header {
     unsigned short type;
@@ -117,6 +124,7 @@ int main(int argc, char *argv[]) {
 
     char response [450];
 
+	ctx = newSSLContext();
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if(sockfd < 0) error("ERROR opening socket");
 
@@ -129,6 +137,10 @@ int main(int argc, char *argv[]) {
     memcpy(&serv_addr.sin_addr.s_addr,server->h_addr,server->h_length);
 
     if(connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) error("ERROR connecting");
+	ssl = SSL_new(ctx);	
+	SSL_set_fd(ssl, sockfd);
+	if ( SSL_connect(ssl) != 1)
+        	ERR_print_errors_fp(stderr);
     connected = true;
     fprintf(stdout, "Connected to the server!\n");
     
@@ -232,7 +244,7 @@ int main(int argc, char *argv[]) {
     }
     fprintf(stdout, "Signed off! Have a nice day\n");
     close(sockfd);
-
+	SSL_CTX_free(ctx);
     return 0;
 }
 
@@ -337,7 +349,7 @@ void sendMessage() {
     int bytes;
     usleep(sleepTime);
     do {
-        bytes = write(sockfd,(char *)&headerToSend+sent,total-sent);
+        bytes = SSL_write(ssl,(char *)&headerToSend+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
         if(bytes == 0) break;
         sent+=bytes;
@@ -348,7 +360,7 @@ void sendMessage() {
         total = i;
         sent = 0;
         while(sent < total) {
-            bytes = write(sockfd, buffer+sent, total-sent);
+            bytes = SSL_write(ssl, buffer+sent, total-sent);
             if(bytes < 0) error("ERROR writing message to socket");
             if(bytes == 0) break;
             sent+= bytes;
@@ -374,7 +386,7 @@ void readMessage() {
 
     memset(headerBuffer,0,sizeof(headerBuffer));
     while(received < total) {
-        bytes = read(sockfd,headerBuffer+received,total-received);
+        bytes = SSL_read(ssl,headerBuffer+received,total-received);
         if(bytes < 0) error("ERROR reading header from socket\n");
         if(bytes == 0) {
             fprintf(stdout, "Server disconnected!\n");
@@ -427,7 +439,7 @@ void readMessage() {
         total = headerToRead.length;
         received = 0;
         while(received < total) {
-            bytes = read(sockfd,dataBuffer+received,total-received);
+            bytes = SSL_read(ssl,dataBuffer+received,total-received);
             if(bytes < 0) error("ERROR reading data from socket\n");
             if(bytes == 0) break;
             received+=bytes;
@@ -565,7 +577,7 @@ void readMessage() {
                         int bytes;
                         usleep(sleepTime);
                         do {
-                            bytes = write(sockfd,(char *)&draftResponse+sent,total-sent);
+                            bytes = SSL_write(ssl,(char *)&draftResponse+sent,total-sent);
                             if(bytes < 0) error("ERROR writing message to socket");
                             if(bytes == 0) break;
                             sent+=bytes;
@@ -574,7 +586,7 @@ void readMessage() {
                         total = headerToRead.length;
                         sent = 0;
                         while(sent < total) {
-                            bytes = write(sockfd, dataBuffer+sent, total-sent);
+                            bytes = SSL_write(ssl, dataBuffer+sent, total-sent);
                             if(bytes < 0) error("ERROR writing password to socket");
                             if(bytes == 0) break;
                             sent+= bytes;
@@ -621,7 +633,7 @@ void sendHello() {
     int bytes;
     usleep(sleepTime);
     do {
-        bytes = write(sockfd,(char *)&helloHeader+sent,total-sent);
+        bytes = SSL_write(ssl,(char *)&helloHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
         if(bytes == 0) break;
         sent+=bytes;
@@ -631,7 +643,7 @@ void sendHello() {
     total = strlen(pword) + 1;
     sent = 0;
     while(sent < total) {
-        bytes = write(sockfd, pword+sent, total-sent);
+        bytes = SSL_write(ssl, pword+sent, total-sent);
         if(bytes < 0) error("ERROR writing password to socket");
         if(bytes == 0) break;
         sent+= bytes;
@@ -661,7 +673,7 @@ void sendPlayerRequest(bool quiet) {
     int bytes;
     usleep(sleepTime);
     do {
-        bytes = write(sockfd,(char *)&playerReqHeader+sent,total-sent);
+        bytes = SSL_write(ssl,(char *)&playerReqHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
         if(bytes == 0) break;
         sent+=bytes;
@@ -691,7 +703,7 @@ void sendStartDraft() {
     int bytes;
     usleep(sleepTime);
     do {
-        bytes = write(sockfd,(char *)&startDraftHeader+sent,total-sent);
+        bytes = SSL_write(ssl,(char *)&startDraftHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
         if(bytes == 0) break;
         sent+=bytes;
@@ -717,7 +729,7 @@ void sendExit() {
     int bytes;
     usleep(sleepTime);
     do {
-        bytes = write(sockfd,(char *)&exitHeader+sent,total-sent);
+        bytes = SSL_write(ssl,(char *)&exitHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
         if(bytes == 0) break;
         sent+=bytes;
@@ -749,7 +761,7 @@ void replyPing(int pingID) {
     usleep(sleepTime);
     //fprintf(stderr, "Done sleeping!\n");
     do {
-        bytes = write(sockfd,(char *)&pingReplyHeader+sent,total-sent);
+        bytes = SSL_write(ssl,(char *)&pingReplyHeader+sent,total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
         if(bytes == 0) break;
         sent+=bytes;
@@ -760,7 +772,7 @@ void replyPing(int pingID) {
     total = sizeof(curTime);
     sent = 0;
     while(sent < total) {
-        bytes = write(sockfd, timeBuffer+sent, total-sent);
+        bytes = SSL_write(ssl, timeBuffer+sent, total-sent);
         if(bytes < 0) error("ERROR writing message to socket");
         if(bytes == 0) break;
         sent+= bytes;
