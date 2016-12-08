@@ -12,7 +12,7 @@ Run server with:
 Run client with:
 <tt>./client (host) (port)</tt>
 
-##Use cases:
+##Use cases for standard application:
 Run the server. <br>
 Connect and disconnect clients at will. <br>
 Follow prompt instructions to send messages, view drafted players, start the draft, draft players, etc. <br>
