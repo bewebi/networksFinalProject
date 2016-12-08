@@ -10,6 +10,10 @@ Compile secure server as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp ssl_utils.cpp secure_server.cpp -o secure_server</tt> <br>
 Compile secure client as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp ssl_utils.cpp secure_client.cpp -o secure_client</tt> <br>
+Compile proxy frontend as follows: <br>
+<tt>g++ -lssl -lcrypto -std=c++11 player.cpp proxy_frontend.cpp -o proxy_frontend</tt> <br>
+Compile proxy backend as follows: <br>
+<tt>g++ -lssl -lcrypto -std=c++11 player.cpp proxy_backend.cpp -o proxy_backend</tt> <br>
 
 Run server with:
 <tt>./server (port) </tt> <br>
@@ -19,6 +23,10 @@ Run secure server with:
 <tt>./secure_server (port)</tt>
 Run secure client with:
 <tt>./secure_client (host) (port)</tt>
+Run proxy frontend with:
+<tt>./proxy_frontend (port) (remote_host) (remote_port)</tt>
+Run proxy backend with:
+<tt>./proxy_backend (port)</tt>
 
 ##Use cases for standard application:
 Run the server. <br>
