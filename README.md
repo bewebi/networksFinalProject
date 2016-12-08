@@ -11,7 +11,7 @@ Run server with:
 Run client with:
 <tt>./client (host) (port)</tt> <br> <br>
 
-For secure application: 
+For secure application: <br>
 Compile secure server as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp ssl_utils.cpp secure_server.cpp -o secure_server</tt> <br>
 Compile secure client as follows: <br>
@@ -21,7 +21,7 @@ Run secure server with:
 Run secure client with:
 <tt>./secure_client (host) (port)</tt> <br> <br>
 
-For proxy application:
+For proxy application: <br>
 Compile proxy frontend as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp proxy_frontend.cpp -o proxy_frontend</tt> <br>
 Compile proxy backend as follows: <br>
@@ -57,3 +57,13 @@ Some suggestions:
 Run the server and watch for SSL handshake. <br>
 Observe traffic on the wire compared to normal application. <br>
 Follow same steps as normal application and verify that behavior is still the same at endpoints <br>
+
+##Use cases for proxy application:
+Run the proxy_backend, followed by the proxy frontend connecting to it.<br>
+Run the client and connect to the proxy frontend.<br>
+Make basic requests like client list and player list. Verify they work as expected. <br>
+Do a chat and verify it gets to the proper client <br>
+Do a draft request and verify the data has been updated properly <br>
+Do an exit and verify the client has been removed <br>
+Using debugger, determine that only one socket is being used on proxy backend.
+Watch traffic on the wire and verify that it is all coming from proxy_frontend instead of client or server endpoints.
