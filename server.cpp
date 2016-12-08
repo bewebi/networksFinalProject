@@ -1363,7 +1363,7 @@ void handleStartDraft(clientInfo *curClient) {
     }
 }
 
-/* a client pinged us back! */
+/* A client pinged us back! */
 void handlePingResponse(clientInfo *curClient) {
 	if(curClient->pingRcvd != curClient->pingSent) return; // If pings are out of sync God help us...or just ignore it
 
@@ -1403,7 +1403,7 @@ void handlePingResponse(clientInfo *curClient) {
 		curClient->timeout += (0.02 * curClient->timeout); // be a little more lenient!
 		curClient->devRTT += (0.02 * curClient->estRTT);
 		fprintf(stderr, "Adjusting timeout to %f\n", curClient->timeout);
-		
+
 		maxDelay = 0;
 
 		for(int i = 0; i < MAXCLIENTS; i++) {
@@ -1418,9 +1418,9 @@ void handlePingResponse(clientInfo *curClient) {
 /********************************************************************
  *			Section 4: Method for sending a ping 					*
  ********************************************************************/
+
+/* This one's pretty self explanatory */
 void sendPing(clientInfo *curClient) {
-	//struct  timespec startTime;
-	//char timeBuffer[sizeof(startTime)];
 
 	struct header responseHeader;
 	memset(&responseHeader,0,sizeof(responseHeader));
@@ -1440,20 +1440,19 @@ void sendPing(clientInfo *curClient) {
 		if(bytes == 0) break;
 		sent+=bytes;
     } while (sent < total);
-
-    //readHeader(curClient, curClient->sock);
-    //readData(curClient);
-    //memcpy(timeBuffer,&startTime,sizeof(startTime));
 }
 
 
 /********************************************************************
  *			Section 5: Methods for managing the draft				*
  ********************************************************************/
+
+ /* Start the draft */
 void sendStartDraft() {
 	memset(&theDraft,0,sizeof(theDraft));
 	startDraft = false;
-	//fprintf(stderr, "In sendStartDraft\n");
+
+	// Get the message out
 	struct header responseHeader;
 	memset(&responseHeader,0,sizeof(responseHeader));
     responseHeader.type = htons(DRAFT_STARTING);
@@ -1470,9 +1469,7 @@ void sendStartDraft() {
     responseHeader.dataLength = htonl(s.length() + 1);
 
     for(int i = 0; i < MAXCLIENTS; i++) {
-    	//fprintf(stderr, "In for with i=%d\n", i);
     	if(clients[i].active) {
-    		//fprintf(stderr, "In for with active client: %s\n", clients[i].ID);
 		    strcpy(responseHeader.destID, clients[i].ID);
     		
 		    int bytes, sent, total;
@@ -1494,6 +1491,7 @@ void sendStartDraft() {
 		        sent+= bytes;
 		    }
 
+		    // Each active client gets a team
 		    struct team newTeam;
 		    memset(&newTeam,0,sizeof(newTeam));
 		    strcpy(newTeam.owner, clients[i].ID);
@@ -1501,26 +1499,28 @@ void sendStartDraft() {
     	}
     }
 
+    // Clear any existing claims on players
     for(int i = 0; i < playerData.size(); i++) {
     	memset(playerData[i].owner,0,IDLENGTH);
     	strcpy(playerData[i].owner,"Server");
     	theDraft.order.push_back(i);
     }
 
-    random_shuffle(theDraft.order.begin(), theDraft.order.end());
-    draftNum++;
-   	//draftNewRound();
-   	usleep(maxDelay * 1000);
+    random_shuffle(theDraft.order.begin(), theDraft.order.end()); // Randomize the order
+    draftNum++; // Only relevant at the end when results need to be written to a unique file
+
+   	usleep(maxDelay * 1000); // Wait for everyone to catch up
    	draftStarted = true;
    	startNewRound = true;
    	curRoundPingsSent = false;
 }
 
+/* Start a new round of the draft */
 void draftNewRound() {
 	startNewRound = false;
     theDraft.currentRound++;
     theDraft.index = theDraft.currentRound - 1;
-    theDraft.index = theDraft.index % playerData.size();
+    theDraft.index = theDraft.index % playerData.size(); // loop around if it gets to that point
 
 	char curPlayer[50];
 	memset(curPlayer,0,50);
@@ -1534,12 +1534,10 @@ void draftNewRound() {
     responseHeader.dataLength = htonl(strlen(curPlayer) + 1);
     responseHeader.msgID = htonl(theDraft.currentRound);	
 
-    timespec writeTime;
     for(int i = 0; i < MAXCLIENTS; i++) {
     	if(clients[i].active) {
 		    strcpy(responseHeader.destID, clients[i].ID);
-		    clock_gettime(CLOCK_MONOTONIC, &writeTime);
-		    //fprintf(stderr, "writeTime for %s: sec: %d, nsec: %d\n", clients[i].ID, writeTime.tv_sec, writeTime.tv_nsec);
+		    
 			int bytes, sent, total;
 		    total = HEADERSIZE; sent = 0;
 		    fprintf(stderr, "draftNewRound: Writing to %s with sock %d\n", clients[i].ID, clients[i].sock);
@@ -1560,40 +1558,43 @@ void draftNewRound() {
 		    }
 		}
     }
-        
+
+	// Clean slate for the new round        
     for(int i = 0; i < theDraft.teams.size(); i++) {
     		theDraft.teams[i].adjustedTimeReceived.tv_sec = 0;
 	   		theDraft.teams[i].adjustedTimeReceived.tv_nsec = 0;
 	   		theDraft.teams[i].responseRecieved = false;
     }
 
-    //timespec fiveSecs; fiveSecs.tv_sec = 5; fiveSecs.tv_nsec = 0;
-    timespec roundTotalTime; roundTotalTime.tv_sec = ((int)maxDelay / 1000) + ROUNDTIME; roundTotalTime.tv_nsec = ((int)maxDelay % 1000) * 1000000;
+    // roundTotaltime is ROUNDTIME plus enough to account for everyone's latency 
+    timespec roundTotalTime; roundTotalTime.tv_sec = ((int)maxDelay / 1000) + ROUNDTIME; 
+    roundTotalTime.tv_nsec = ((int)maxDelay % 1000) * 1000000;
     //fprintf(stderr, "roundTotalTime.tv_sec: %d, tv_nsec: %d\n", roundTotalTime.tv_sec, roundTotalTime.tv_nsec);
+
     timespec curTime;
     clock_gettime(CLOCK_MONOTONIC,&curTime);
-    //fprintf(stderr, "curTime.tv_sec: %d, tv_nsec: %d\n", curTime.tv_sec, curTime.tv_nsec);
+
+    // Round should end after roundTotalTime has ellapsed
     timespec roundEndTime;
-    timespecAdd(&roundTotalTime,&curTime,&roundEndTime);
-    //fprintf(stderr, "roundEndTime.tv_sec: %d, tv_nsec: %d\n", roundEndTime.tv_sec, roundEndTime.tv_nsec);
-    //roundEndTime.tv_sec = roundTotalTime.tv_sec + curTime.tv_sec + ((roundTotalTime.tv_nsec + curTime.tv_nsec) / 1000000000);
-    //roundEndTime.tv_nsec = (roundTotalTime.tv_nsec + curTime.tv_nsec) % 1000000000;
+    timespecAdd(&roundTotalTime,&curTime,&roundEndTime); 
+    
     theDraft.roundEndTime = roundEndTime;
 }
 
+/* The round is over */
 void endDraftRound() {
-	//fprintf(stderr, "In endDraftRound\n");
+
 	char winner[IDLENGTH];
 	memset(winner,0,IDLENGTH);
 
 	timespec quickest;
 	quickest.tv_sec = theDraft.roundEndTime.tv_sec;
 	quickest.tv_nsec = theDraft.roundEndTime.tv_nsec;
-	//fprintf(stderr, "quickest has tv_sec: %d and tv_nsec %d\n", quickest.tv_sec, quickest.tv_nsec);
 
+	// Find the team that had the quickest effective time
 	for(int i = 0; i < theDraft.teams.size(); i++) {
-		//fprintf(stderr, "Team %s had adjustedTimeReceived.tv_sec: %d and tv_nsec: %d\n", theDraft.teams[i].owner, theDraft.teams[i].adjustedTimeReceived.tv_sec, theDraft.teams[i].adjustedTimeReceived.tv_nsec);
 		if(theDraft.teams[i].adjustedTimeReceived.tv_sec != 0) {
+			//fprintf(stderr, "Team %s had adjustedTimeReceived.tv_sec: %d and tv_nsec: %d\n", theDraft.teams[i].owner, theDraft.teams[i].adjustedTimeReceived.tv_sec, theDraft.teams[i].adjustedTimeReceived.tv_nsec);
 			if(timespecLessthan(&theDraft.teams[i].adjustedTimeReceived,&quickest)) {
 				if(theDraft.teams[i].playersDrafted < TEAMSIZE) {
 					//fprintf(stderr, "New fastest is: %s\n", theDraft.teams[i].owner);
@@ -1611,17 +1612,13 @@ void endDraftRound() {
 				theDraft.teams[i].players[theDraft.teams[i].playersDrafted] = playerData[theDraft.order[theDraft.index]];
 				theDraft.teams[i].playersDrafted++;
 				fprintf(stderr, "%s won %s in round %d of the draft\n", winner, playerData[theDraft.order[theDraft.index]].PLAYER_NAME, theDraft.currentRound);
-				//fprintf(stderr, "The owner of %s is now %s\n",playerData[theDraft.index].PLAYER_NAME,playerData[theDraft.index].owner);
-				//fprintf(stderr, "Team %s: \n", winner);
-				//for(int j = 0; j < theDraft.teams[i].playersDrafted; j++) {
-				//	fprintf(stderr, "Player %d: %s\n", j+1, theDraft.teams[i].players[j].PLAYER_NAME);
-				//}
 			}
 		}
 	} else {
 		fprintf(stderr, "No one claimed %s in round %d of the draft\n", playerData[theDraft.order[theDraft.index]].PLAYER_NAME, theDraft.currentRound);
 	}
 
+    // Tell everyone who won!
     struct header responseHeader;
     responseHeader.type = htons(DRAFT_ROUND_RESULT);
     strcpy(responseHeader.sourceID, "Server");
@@ -1651,22 +1648,20 @@ void endDraftRound() {
 		    }			
 		}
 	}
-	//fprintf(stderr, "End of endDraftRound\n");
+	
 	bool readyToEnd = true;
 	for(int i = 0; i < theDraft.teams.size(); i++) {
-		//fprintf(stderr, "Check end loop i: %d\n", i);
 		if(theDraft.teams[i].playersDrafted != TEAMSIZE) {
-			//fprintf(stderr, "Team %s is not full\n", theDraft.teams[i].owner);
+			// Found a team that isn't full, but is the owner active?
 			bool foundAndActive = false;
 			for(int j = 0; j < MAXCLIENTS; j++) {
-				if(strcmp(clients[j].ID,theDraft.teams[i].owner) == 0) {
-					if(clients[j].active) {
-						//fprintf(stderr, "%s is found and active\n", clients[j].ID);
-						foundAndActive = true;
-					}
+				if((strcmp(clients[j].ID,theDraft.teams[i].owner) == 0)  && clients[j].active) {
+					// Sure is!	
+					foundAndActive = true;
 				}
 			}
 			if(foundAndActive) {
+				// So we're not done yet
 				readyToEnd = false;
 				break;
 			}
@@ -1680,18 +1675,19 @@ void endDraftRound() {
 		usleep(maxDelay * 1000);
 		startNewRound = true;
 		curRoundPingsSent = false;
-//		draftNewRound();
 	}
 }
 
+/* Let's end this thing */
 void endDraft() {
 	draftStarted = false;
 
+	// Get the word out
     struct header responseHeader;
     responseHeader.type = htons(DRAFT_END);
     strcpy(responseHeader.sourceID, "Server");
     responseHeader.dataLength = htonl(0);
-    responseHeader.msgID = htonl(draftNum);
+    responseHeader.msgID = htonl(draftNum); // Client will be able to write to a unique file
 
 	for(int i = 0; i < MAXCLIENTS; i++) {
 		clients[i].readyToDraft = false;
@@ -1711,6 +1707,7 @@ void endDraft() {
 		}
 	}
 
+	// Free up the players
 	for(int i = 0; i < playerData.size(); i++) {
 		memset(playerData[i].owner,0,IDLENGTH);
 		strcpy(playerData[i].owner,"Server");
