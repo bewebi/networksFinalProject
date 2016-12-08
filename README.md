@@ -6,24 +6,26 @@ Compile server as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp server.cpp -o server</tt> <br>
 Compile client as follows: <br>
 <tt>g++ -std=c++11 player.cpp client.cpp -o client</tt> <br>
+Run server with:
+<tt>./server (port) </tt> <br>
+Run client with:
+<tt>./client (host) (port)</tt> <br> <br>
 
 For secure application: 
 Compile secure server as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp ssl_utils.cpp secure_server.cpp -o secure_server</tt> <br>
 Compile secure client as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp ssl_utils.cpp secure_client.cpp -o secure_client</tt> <br>
+Run secure server with:
+<tt>./secure_server (port)</tt>
+Run secure client with:
+<tt>./secure_client (host) (port)</tt> <br> <br>
+
+For proxy application:
 Compile proxy frontend as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp proxy_frontend.cpp -o proxy_frontend</tt> <br>
 Compile proxy backend as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp proxy_backend.cpp -o proxy_backend</tt> <br>
-Run server with:
-<tt>./server (port) </tt> <br>
-Run client with:
-<tt>./client (host) (port)</tt>
-Run secure server with:
-<tt>./secure_server (port)</tt>
-Run secure client with:
-<tt>./secure_client (host) (port)</tt>
 Run proxy frontend with:
 <tt>./proxy_frontend (port) (remote_host) (remote_port)</tt>
 Run proxy backend with:
