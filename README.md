@@ -1,21 +1,21 @@
 #Secure, Fair Fantasy Sports
 Bernie Birnbaum and Shawyoun Saidon
 
-For standard application:
-Compile server as follows:
-<tt>g++ -lssl -lcrypto -std=c++11 player.cpp server.cpp -o server</tt>
-Compile client as follows:
-<tt>g++ -std=c++11 player.cpp client.cpp -o client</tt>
+For standard application: <br>
+Compile server as follows: <br>
+<tt>g++ -lssl -lcrypto -std=c++11 player.cpp server.cpp -o server</tt> <br>
+Compile client as follows: <br>
+<tt>g++ -std=c++11 player.cpp client.cpp -o client</tt> <br>
 
 Run server with:
-<tt>./server <port></tt>
+<tt>./server <port></tt> <br>
 Run client with:
 <tt>./client <host> <port></tt>
 
 ##Use cases:
-Run the server.
-Connect and disconnect clients at will.
-Follow prompt instructions to send messages, view drafted players, start the draft, draft players, etc.
+Run the server. <br>
+Connect and disconnect clients at will. <br>
+Follow prompt instructions to send messages, view drafted players, start the draft, draft players, etc. <br>
 Some suggestions:
 <ul>
 	<li> Log out and log back in with correct password (or risk getting booted with the wrong password!)</li>
