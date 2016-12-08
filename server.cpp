@@ -375,7 +375,6 @@ int main(int argc, char *argv[]) {
 void readFromClient (int sockfd) {
     int i;
     struct clientInfo *curClient;
-    //fprintf(stderr, "sockfd: %d\n", sockfd);
 
     /* get client address based on sockfd */
     for(i = 0; i < MAXCLIENTS; i++) {
@@ -384,29 +383,29 @@ void readFromClient (int sockfd) {
 			    curClient = &clients[i];
 			    break;
 			} else {
+				// This is a new user
 				struct clientInfo newClient;
-				    memset(&newClient, 0, sizeof(newClient));
-				    newClient.sock = sockfd;
-			     	newClient.headerToRead = HEADERSIZE;
-		     		newClient.active = true;
-		     		newClient.validated = false;
-				    int inserted = 0;
-		     		while(inserted == 0) {
-				 		if(clients[clientCounter].sock == NULL) {
-				    		clients[clientCounter] = newClient;
-					    	inserted = 1;
-					 	}
-						clientCounter++;
-						numActiveClients++;
-						clientCounter = clientCounter % MAXCLIENTS;
-		     		}
-		    //fprintf(stderr, "New client made with previously existing sockfd: %d\n", sockfd);
+				memset(&newClient, 0, sizeof(newClient));
+				newClient.sock = sockfd;
+			    newClient.headerToRead = HEADERSIZE;
+		     	newClient.active = true;
+		     	newClient.validated = false;
+				bool inserted = false;
+		     	while(!inserted) {
+					if(clients[clientCounter].sock == 0) {
+				  		clients[clientCounter] = newClient;
+				    	inserted = true;
+				 	}
+					clientCounter++;
+					numActiveClients++;
+					clientCounter = clientCounter % MAXCLIENTS;
+		     	}
+		     	break;
 			}
 		}
     }
 
-    /* data takes precedence over headers since headerToRead should always 
-       be > 0 */
+    /* send to appropriate read method; headerToRead should always be positive */
     if(curClient->pwordToRead > 0) {
     	readPword(curClient);
     } else if(curClient->dataToRead > 0) {
