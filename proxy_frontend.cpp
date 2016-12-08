@@ -49,6 +49,7 @@ using namespace std;
 #define DRAFT_STARTING 16
 #define DRAFT_ROUND_START 17
 #define DRAFT_ROUND_RESULT 18
+#define BAD_EXIT 19 /* Shawyoun */
 
 struct header {
     unsigned short type;
@@ -183,6 +184,7 @@ void handlePlayerResponse(struct clientInfo* curClient); /* Shawyoun */
 void handleChatForWrite(struct clientInfo * curClient); /* Shawyoun */
 void handleCannotDeliver(struct clientInfo * curClient); /* Shawyoun */
 void handleErrorForWrite(struct clientInfo * curClient); /* Shawyoun */
+void handleBadExit(struct clientInfo *curClient); /* Shawyoun */
 
 string sha256(const string str);
 
@@ -401,7 +403,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
     if (nbytes <= 0) {
 		/* Read error or EOF: Socket closed */
     	// TODO: Pause mode
-		handleExit(curClient);
+		handleBadExit(curClient); /* Shawyoun */
     } else if (nbytes < curClient->headerToRead) {
 		/* Shawyoun */
 		fprintf(stderr, "Partial header: ");
@@ -485,7 +487,7 @@ void readData(struct clientInfo *curClient) {
 
     if (nbytes <= 0) {
       /* Read error or EOF */
-		handleExit(curClient);
+		handleBadExit(curClient); /* Shawyoun */
     } else if (nbytes < curClient->dataToRead) {
 	/* still more data to read */
 		curClient->dataToRead = curClient->dataToRead - nbytes;
@@ -522,7 +524,7 @@ void readPword(struct clientInfo *curClient) {
 
 	if (nbytes <= 0) {
 		/* Read error or EOF */
-		handleExit(curClient);
+		handleBadExit(curClient); /* Shawyoun */
 	} else if (nbytes < curClient->pwordToRead) {
 		/* still more pword to read */
 		curClient->pwordToRead = curClient->pwordToRead - nbytes;
@@ -618,6 +620,61 @@ void handleExit(struct clientInfo *curClient) {
 	/* } Shawyoun */
 }
 
+void handleBadExit(struct clientInfo *curClient) {
+	fprintf(stderr, "Entered handleBadExit\n");
+	struct header exitHeader;
+    memset(&exitHeader, 0, sizeof(exitHeader));
+    exitHeader.type = htons(BAD_EXIT);
+    memcpy(exitHeader.sourceID,curClient->ID,IDLENGTH);
+    memcpy(exitHeader.destID,"Server",IDLENGTH);
+    exitHeader.dataLength = htonl(0);
+    exitHeader.msgID = htonl(0);
+
+    int total = sizeof(exitHeader);
+    int sent = 0;
+    int bytes;
+    do {
+        bytes = write(backEndServerSock,(char *)&exitHeader+sent,total-sent);
+        if(bytes < 0) error("ERROR writing message to socket");
+        if(bytes == 0) break;
+        sent+=bytes;
+        //fprintf(stdout,"Sent %d bytes of the exit header\n",sent);
+    } while (sent < total);
+
+	/* Shawyoun if(curClient->active && curClient->validated) {
+		fprintf(stderr, "exit: active and validated\n");
+		int sock = curClient->sock;
+		close(sock);
+		FD_CLR(sock, &read_fd_set);
+		FD_CLR(sock, &active_fd_set);
+		curClient->active = false;
+		curClient->sock = -1;
+	} else { *
+		if(!curClient->active) fprintf(stderr, "exit: not active\n");
+		if(!curClient->validated) fprintf(stderr, "exit: not validated\n"); */
+		int sock = curClient->sock;
+		close(sock);
+		FD_CLR(sock, &read_fd_set);
+		FD_CLR(sock, &active_fd_set);
+	    for(int i = 0; i < MAXCLIENTS; i++) {
+	    	if(curClient->sock == 0) break;
+			if((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)) {
+				if(!curClient->validated) {
+					for(int i = 0; i < playerData.size(); i++) {
+						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
+							memset(playerData[i].owner,0,IDLENGTH);
+							strcpy(playerData[i].owner,"Server");
+						}
+					}
+				}
+			    fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,curClient->sock);
+			    memset(curClient, 0, sizeof(curClient));
+			}
+	    }
+	    numClients--;
+	/* } Shawyoun */
+}
+
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
     /* build CLIENT_ALREADY_PRESENT header */
 	/*
@@ -645,7 +702,7 @@ void handleClientPresent(struct clientInfo *curClient, char *ID) {
 }
 
 void handleCannotDeliver(struct clientInfo *curClient) {
-    
+ 	/* TODO Shawyoun: implement this */   
 }
 
 /* Shawyoun: we may not need this anymore */
@@ -1039,7 +1096,7 @@ void readHeaderForBackEnd(struct clientInfo *curClient) {
     if (nbytes <= 0) {
 		/* Read error or EOF: Socket closed */
     	// TODO: Pause mode
-		handleExit(curClient);
+		handleBadExit(curClient); /* Shawyoun */
     } else if (nbytes < curClient->headerToWrite) {
 		/* still more to read */
 		curClient->headerToWrite = curClient->headerToWrite - nbytes;
@@ -1138,7 +1195,7 @@ void readDataForBackEnd(struct clientInfo *curClient) {
 
     if (nbytes <= 0) {
       /* Read error or EOF */
-		handleExit(curClient);
+		handleBadExit(curClient); /* Shawyoun */
     } else if (nbytes < curClient->dataToWrite) {
 	/* still more data to read */
 		curClient->dataToWrite = curClient->dataToWrite - nbytes;
