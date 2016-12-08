@@ -1718,14 +1718,15 @@ void endDraft() {
 /********************************************************************
  *		Section 6: Helper for deciding if draft round is over		*
  ********************************************************************/
+
+/* true if conditions are met for ending round, false otherwise */
 bool roundIsOver() {
-	//fprintf(stderr, "In roundIsOver\n");
 	bool allResponsesRecieved = true;
 	for(int i = 0; i < theDraft.teams.size(); i++) {
 		if(!theDraft.teams[i].responseRecieved) 
 			for(int j = 0; j < MAXCLIENTS; j++) {
-				if(strcmp(clients[j].ID,theDraft.teams[i].owner) == 0) {
-					if(clients[j].active) allResponsesRecieved = false;
+				if((strcmp(clients[j].ID,theDraft.teams[i].owner) == 0) && clients[j].active) {
+					allResponsesRecieved = false;
 				}
 			}
 	}
@@ -1736,6 +1737,8 @@ bool roundIsOver() {
 /********************************************************************
  *		Section 7: Helpers for timespec comparison and arithmetic	*
  ********************************************************************/
+
+/* Sum of a and b placed in c */
 void timespecAdd(timespec *a, timespec *b, timespec *c) {
 	time_t secs = a->tv_sec + b->tv_sec + ((a->tv_nsec + b->tv_nsec) / 1000000000);
 	long nsecs = (a->tv_nsec + b->tv_nsec) % 1000000000;
@@ -1744,7 +1747,8 @@ void timespecAdd(timespec *a, timespec *b, timespec *c) {
 	c->tv_nsec = nsecs;
 }
 
-// Assumes a > b
+/* Difference of a and b placed in c */
+/* Assumes a > b; not sure what happens with negative time o.O */
 void timespecSubtract(timespec *a, timespec *b, timespec *c) {
 	if(!timespecLessthan(b,a)) return;
 
@@ -1760,8 +1764,8 @@ void timespecSubtract(timespec *a, timespec *b, timespec *c) {
 	c->tv_sec = c->tv_sec - b->tv_sec;
 }
 
+/* true if a is earlier than b, false otherwise */
 bool timespecLessthan(timespec *a, timespec *b) {
-	// Is a less than/earlier than b?
 	if(a->tv_sec < b->tv_sec) return true;
 	if(a->tv_sec > b->tv_sec) return false;
 	if(a->tv_nsec < b->tv_nsec) return true;
@@ -1771,6 +1775,8 @@ bool timespecLessthan(timespec *a, timespec *b) {
 /********************************************************************
  *		 Section 8: Helper for encrypting user passwords			*
  ********************************************************************/
+
+/* Thanks to the internet; do not recall the source, but this is not our code */
 string sha256(const string str) {
     unsigned char hash[SHA256_DIGEST_LENGTH];
     SHA256_CTX sha256;
