@@ -424,6 +424,7 @@ void readFromClient (int sockfd) {
 void readHeader(struct clientInfo *curClient, int sockfd) {
     char header_buffer[HEADERSIZE];
     int nbytes;
+
     /* retrieve what has already been read of the header */
     memcpy(header_buffer, curClient->partialHeader, HEADERSIZE);
     /* try to read the rest of the header */
@@ -433,7 +434,6 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 
     if (nbytes <= 0) {
 		/* Read error or EOF: Socket closed */
-    	// TODO: Pause mode
 		handleExit(curClient);
     } else if (nbytes < curClient->headerToRead) {
 		/* still more to read */
@@ -451,7 +451,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 
 		fprintf (stderr, "Header read in: type: %hu, sourceID: %s, destID: %s, dataLength: %u, msgID: %u\n", newHeader.type, newHeader.sourceID, newHeader.destID, newHeader.dataLength, newHeader.msgID);
 
-		/* identify potential bad input */
+		/* identify potential bad input; holdover from Assignment 2 */
 		if((strcmp(newHeader.sourceID,curClient->ID) != 0) && (strcmp(curClient->ID,"") != 0) && curClient->active) {
 	    	fprintf(stderr, "ERROR: wrong user ID in header\n");
 		    handleError(curClient);
@@ -475,8 +475,6 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 
 		/* next step depends on header type */
 		if(newHeader.type == HELLO) {
-			//char pword[IDLENGTH];
-			//memset(pword,0,IDLENGTH);
 
 		    if(newHeader.dataLength > 20) {
 				fprintf(stderr, "ERROR: HELLO has dataLength > 20 \n");
@@ -496,11 +494,13 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 				handleError(curClient);
 				return;
 		    }
+
 	    	if(strcmp(newHeader.destID, "Server") != 0) {
 				fprintf(stderr, "ERROR: HELLO not addressed to Server\n");
 				handleError(curClient);
 				return;
 		    }
+
 		    if(strcmp(newHeader.sourceID, "Server") == 0) {
 				fprintf(stderr, "ERROR: 'Server' is not a valid ID\n");
 				handleError(curClient);
@@ -530,6 +530,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 				curClient->validated = false;
 			}
 
+			// Make sure readPword is triggered
 		    curClient->totalPwordExpected = newHeader.dataLength;
 		    curClient->pwordToRead = newHeader.dataLength;
 		    memcpy(curClient->ID, newHeader.sourceID, IDLENGTH);
@@ -541,21 +542,25 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 				handleError(curClient);
 				return;
 		    }
+
 	    	if(newHeader.dataLength != 0) {
 				fprintf(stderr, "ERROR: LIST_REQUEST has dataLength != 0\n");
 				handleError(curClient);
 				return;
 	    	}
+
 		    if(newHeader.msgID != 0) {
 				fprintf(stderr, "ERROR: LIST_REQUEST has msgID != 0\n");
 				handleError(curClient);
 				return;
 	    	}
+
 		    if(strcmp(newHeader.destID, "Server") != 0) {
 				fprintf(stderr, "ERROR: LIST_REQEUST not addressed to Server\n");
 				handleError(curClient);
 				return;
 		    }
+
 		    handleListRequest(curClient);
 
 		} else if(newHeader.type == CHAT) {
@@ -565,6 +570,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 				handleError(curClient);
 				return;
 	    	}
+
 		    if(strcmp(curClient->ID,"") == 0) {
 				fprintf(stderr,"ERROR: CHAT from client without ID\n");
 				handleError(curClient);
@@ -580,8 +586,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 	    	curClient->totalDataExpected = newHeader.dataLength;
 
 		} else if(newHeader.type == EXIT) {
-		    /* No need to check for errors, 
-               we're kicking the client out anyway! */
+		    /* Client formally exiting, make sure handleExit removes them completely */
 			curClient->active = false;
 			numActiveClients--;
 			curClient->validated = false;
@@ -591,12 +596,14 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 			handlePlayerRequest(curClient);
 
 		} else if(newHeader.type == DRAFT_REQUEST) {
+			// Need to read in player that is being drafted
 			memset(curClient->partialData, 0, MAXDATASIZE);
 			curClient->mode = DRAFT_REQUEST;
 			curClient->dataToRead = newHeader.dataLength;
 			curClient->totalDataExpected = newHeader.dataLength;
 
 		}else if(newHeader.type == PING_RESPONSE) {
+			// Client is sending a timestamp of its own, though the server doesn't use it
 			memset(curClient->partialData,0,MAXDATASIZE);
 			curClient->mode = PING_RESPONSE;
 			curClient->msgID = newHeader.msgID;
@@ -604,9 +611,11 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 			curClient->totalDataExpected = newHeader.dataLength;
 
 		} else if(newHeader.type == START_DRAFT) {
+			// Sorry about the confusing name; client is toggling their readiness
 			handleStartDraft(curClient);
 
 		} else if(newHeader.type == DRAFT_PASS) {
+			// Need to read in player being passed on
 			memset(curClient->partialData, 0, MAXDATASIZE);
 			curClient->mode = DRAFT_PASS;
 			curClient->dataToRead = newHeader.dataLength;
@@ -631,19 +640,20 @@ void readData(struct clientInfo *curClient) {
     //fprintf(stderr, "nbytes: %d, expected readsize: %d\n",nbytes,curClient->dataToRead); 
 
     if (nbytes <= 0) {
-      /* Read error or EOF */
+        /* Read error or EOF */
 		handleExit(curClient);
     } else if (nbytes < curClient->dataToRead) {
-	/* still more data to read */
+		/* still more data to read */
 		curClient->dataToRead = curClient->dataToRead - nbytes;
 		memcpy(curClient->partialData, data_buffer, curClient->totalDataExpected);
     } else {
-	/* All data has been read */
+		/* All data has been read */
 		memcpy(curClient->partialData, data_buffer, curClient->totalDataExpected);	
 		//fprintf(stderr,"Message read in: curClient->partialData: %s\n",curClient->partialData);
 
 		curClient->dataToRead = 0;
 
+		// Send to the appropraite handler
 		if(curClient->mode == CHAT) {
 			handleChat(curClient);
 		} else if(curClient->mode == DRAFT_REQUEST) {
@@ -677,6 +687,7 @@ void readPword(struct clientInfo *curClient) {
 		memcpy(curClient->pword, data_buffer, curClient->totalPwordExpected);
 	} else {
 		/* entire password read */
+
 		string hashed = sha256(data_buffer);
 		char hashBuffer[65];
 		for(int i = 0; i < hashed.length(); i++) {
@@ -689,6 +700,7 @@ void readPword(struct clientInfo *curClient) {
 
 		curClient->pwordToRead = 0;
 
+		// Ready to deal with new client now that we have their password
 		handleHello(curClient);
 	}
 }
