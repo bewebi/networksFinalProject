@@ -6,11 +6,19 @@ Compile server as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp server.cpp -o server</tt> <br>
 Compile client as follows: <br>
 <tt>g++ -std=c++11 player.cpp client.cpp -o client</tt> <br>
+Compile secure server as follows: <br>
+<tt>g++ -lssl -lcrypto -std=c++11 player.cpp ssl_utils.cpp secure_server.cpp -o secure_server</tt> <br>
+Compile secure client as follows: <br>
+<tt>g++ -lssl -lcrypto -std=c++11 player.cpp ssl_utils.cpp secure_client.cpp -o secure_client</tt> <br>
 
 Run server with:
 <tt>./server (port) </tt> <br>
 Run client with:
 <tt>./client (host) (port)</tt>
+Run secure server with:
+<tt>./secure_server (port)</tt>
+Run secure client with:
+<tt>./secure_client (host) (port)</tt>
 
 ##Use cases for standard application:
 Run the server. <br>
