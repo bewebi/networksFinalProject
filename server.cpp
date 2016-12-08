@@ -2,6 +2,8 @@
 // Comp 112 Final Project
 // Tufts University
 
+// This whole section with includes, defines, and struct definitions would
+// ideally be in a seperate header files
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -28,65 +30,74 @@
 
 using namespace std;
 
-#define MAXDATASIZE 400
-#define MAXCLIENTS 200
+// Single points of reference for hard-coded parameters
+#define MAXDATASIZE 400 // Only limits messages sent between users
+#define MAXCLIENTS 200 // Draft with this many would run out of players however
 #define IDLENGTH 20 // Includes null character
 #define TEAMSIZE 12
 #define ROUNDTIME 10 // Max of 255
 #define PARTICIPATING_MASK 256
+const float minTimeout = 50.0;
 
+// Message types (in order in which they were incorperated into the code)
+// Comments indicat use of msgID field, if any
 #define HELLO 1
-#define HELLO_ACK 2
+#define HELLO_ACK 2 // 1 if draft in progress, 0 otherwise
 #define LIST_REQUEST 3
 #define CLIENT_LIST 4
-#define CHAT 5
+#define CHAT 5 // # chat sent by client
 #define EXIT 6
 #define ERROR 7
 #define CANNOT_DELIVER 8
 #define PLAYER_REQUEST 9
 #define PLAYER_RESPONSE 10
 #define DRAFT_REQUEST 11
-#define PING 12
-#define PING_RESPONSE 13
+#define PING 12 // # ping sent to specific client by server
+#define PING_RESPONSE 13 // # of pint client is responding to
 #define START_DRAFT 14
 #define DRAFT_STATUS 15
-#define DRAFT_STARTING 16
-#define DRAFT_ROUND_START 17
-#define DRAFT_ROUND_RESULT 18
+#define DRAFT_STARTING 16 // Roundlength & participation mask
+#define DRAFT_ROUND_START 17  // # of round that is starting
+#define DRAFT_ROUND_RESULT 18 // # of round that is ending
 #define DRAFT_PASS 19
-#define DRAFT_END 20
+#define DRAFT_END 20 // # of draft that just finished
 
-
+// Header struct, agreed upon by client and server
 struct header {
-    unsigned short type;
-    char sourceID[IDLENGTH];
+    unsigned short type; // One of the options from above;
+    char sourceID[IDLENGTH]; 
     char destID[IDLENGTH];
     unsigned int dataLength;
-    unsigned int msgID;
+    unsigned int msgID; // Used to store info for some message types
 }__attribute__((packed, aligned(1)));
 
 #define HEADERSIZE sizeof(header)
 
+// struct for storing info about clients
 struct clientInfo {
     int sock;
     char ID[IDLENGTH];
     bool active;
     int mode;
 
+    // In case a header isn't read all at once
     int headerToRead;
     char partialHeader[HEADERSIZE];
 
+    // Storage for data read from client
     int dataToRead;
     int totalDataExpected;
     char partialData[MAXDATASIZE];
     char destID[IDLENGTH];
     int msgID;
 
+    // Storage for client's hashed password
     int pwordToRead;
     int totalPwordExpected;
     char pword[65];
     bool validated;
 
+    // Info about this client's pings
     int pingSent;
     int pingRcvd;
     int pings;
@@ -95,9 +106,11 @@ struct clientInfo {
     float devRTT;
     float timeout;
 
+    // Is this client ready for the draft to start?
     bool readyToDraft;
 }__attribute__((packed, aligned(1)));
 
+// Struct for each team participating in draft
 struct team
 {
 	char owner[20];
@@ -107,6 +120,7 @@ struct team
 	playerInfo players[TEAMSIZE];
 };
 
+// Info about the draft
 struct draftInfo {
 	int index;
 	int currentRound;
@@ -115,25 +129,34 @@ struct draftInfo {
 	vector<int> order;
 };
 
+// Stroring, tracking clients
 struct clientInfo clients[MAXCLIENTS];
 int clientCounter = 0;
 int numClients = 0; int numActiveClients = 0;
+
+// maximum time server should wait for any client to respond
 float maxDelay;
-int draftNum = 0;
+
+// conditions for sending pings
 bool timedOut = false;
-bool draftStarted;
-bool startDraft = false;
-bool startNewRound = false;
 bool curRoundPingsSent = false;
 bool newEntry = false;
+
+// Tracking the status of the draft (admittedly could have been part of draftInfo struct)
+int draftNum = 0;
+bool startDraft = false;
+bool draftStarted;
+bool startNewRound = false;
 struct draftInfo theDraft;
 
+// Info on all players
 vector<playerInfo> playerData;
 
-const float minTimeout = 50.0;
+// For estRTT, devRTT, timeout calculations
 const float alpha = 0.875;
 const float beta = 0.25;
 
+// Boilerplate functions
 void error(const char *msg)
 {
     perror(msg);
@@ -150,6 +173,7 @@ int min(int a, int b) {
 	return b;
 }
 
+/* Methods are broken down into sections */
 // 1. All purpose method for new read from a client
 void readFromClient(int sockfd);
 
@@ -202,18 +226,15 @@ int main(int argc, char *argv[]) {
 	memset(clients,0,sizeof(clients));
 	// TODO: Give more options than this hard coded file
 	playerData = readCSV("nba1516.csv");
-	//for(int i = 0; i < playerData.size(); i++) {
-		//cout << playerToString(playerData[i]) << '\n';
-	//}
 
     memset(&clients, 0, sizeof(clients));
     int sockfd, newsockfd, portno, pid, i;
-    //int clientCounter = 0;
     
     socklen_t clilen;
 
     struct sockaddr_in serv_addr, cli_addr;
-   
+
+	// TODO: Flags for particular error message types
     if (argc < 2) {
 		fprintf(stderr,"ERROR, no port provided\n");
 		exit(1);
@@ -241,44 +262,39 @@ int main(int argc, char *argv[]) {
    		timespec curTime;
    		clock_gettime(CLOCK_MONOTONIC,&curTime);
 
+   		// Determine timeout for select
 		timespec timeToEndRound;
     	if(draftStarted && !startNewRound) {
-//    		fprintf(stderr, "draftStarted && !startNewRound\n");
     		if(timespecLessthan(&theDraft.roundEndTime,&curTime)) {
+    			// Time has elapsed!
     			fprintf(stderr, "About to endDraftRound\n");
     			endDraftRound();
-    			continue;
+    			continue; // Probably unecessary 
     		} else {
-//    			fprintf(stderr, "About to timespecSubtract\n");
 				timespecSubtract(&theDraft.roundEndTime,&curTime,&timeToEndRound);
 				fprintf(stderr, "Time til next round: %d.%ds\n", timeToEndRound.tv_sec,timeToEndRound.tv_nsec);
 			}
     	} else {
-//    		fprintf(stderr, "!draftStarted || startNewRound\n");
+    		// Next round will never be if the draft is not going on!
     		timeToEndRound.tv_sec = 99999;
     		timeToEndRound.tv_nsec = 0;
     	}
 
-  //   	if((timedOut && !draftStarted) || (startNewRound && !curRoundPingsSent)) {
-		// 	for(int i = 0; i < MAXCLIENTS; i++) {
-		// 		if(clients[i].active && clients[i].validated) {
-		// 			if((clients[i].pingSent == clients[i].pingRcvd) || ((curTime.tv_sec - clients[i].lastPingSent.tv_sec) > 30)) {
-		// 				sendPing(&clients[i]);
-		// 			}
-		// 		}
-		// 	}
-		// 	if(startNewRound) curRoundPingsSent = true;
-		// }
-
 		timedOut = true;
 
-		//fprintf(stderr, "Max delay (ms): %f\n", maxDelay);
+		// If the draft is going on, want to end as close to end of round as possible
+		// Otherwise wait a healthy amount more than necessary to accomodate maxDelay
 		int timeoutSecs = min(max(((int)(maxDelay + 1500) / 1000), 5), (timeToEndRound.tv_sec + 1) );
-		fprintf(stderr, "timeoutSecs: %d\n", timeoutSecs);
+		//fprintf(stderr, "timeoutSecs: %d\n", timeoutSecs);
+
 		struct timeval selectTimeout = {timeoutSecs,(timeToEndRound.tv_nsec / 1000)};
+
+		// Cases where we want to send pings sooner rather than later
 		if(startNewRound && !curRoundPingsSent) selectTimeout = {0,1000};
 		if(newEntry) selectTimeout = {1,0};
+
 		read_fd_set = active_fd_set;
+
 		/* Block until input arrives on one or more active sockets */
 		if(select(FD_SETSIZE, &read_fd_set, NULL, NULL, &selectTimeout) < 0) {
 		    error("ERROR on select");
@@ -308,7 +324,7 @@ int main(int argc, char *argv[]) {
 				    while(!inserted) {
 						if(clients[clientCounter].sock == NULL) {
 					    	clients[clientCounter] = newClient;
-					    	inserted = 1;
+					    	inserted = true;
 						}
 					 	clientCounter++;
 					 	numClients++;
@@ -326,10 +342,12 @@ int main(int argc, char *argv[]) {
 				}
 	    	} 
 		}
-//	    if(timedOut) fprintf(stderr, "Timed out select\n");
+
+		// If it's been quiet for long enough or we need to get the pings in now, lets ping!
 		if((timedOut && !draftStarted) || (startNewRound && !curRoundPingsSent)) {
 			for(int i = 0; i < MAXCLIENTS; i++) {
 				if(clients[i].active && clients[i].validated) {
+					// Don't ping if we're still waiting on a response...unless it's really hopeless
 					if((clients[i].pingSent == clients[i].pingRcvd) || ((curTime.tv_sec - clients[i].lastPingSent.tv_sec) > 30)) {
 						sendPing(&clients[i]);
 					}
@@ -339,10 +357,11 @@ int main(int argc, char *argv[]) {
 				curRoundPingsSent = true;
 				timedOut = false;
 			}
+			// Want to keep up the short timeouts until we get the newbie at least one ping
 			if(newEntry) newEntry = false;
-
 		}
 
+		// Making sure there's a chance for client input to come in before starting anything
 		if(startDraft && timedOut) sendStartDraft();
 		if(startNewRound && timedOut) draftNewRound();
     }
@@ -1245,7 +1264,7 @@ void handleDraftRequest(clientInfo *curClient) {
 				}
 			}
 		} else {
-			//fprintf(stderr, "Draft request for previous round recieved from %s\n", curClient->ID);
+			//fprintf(stderr, "Draft request for invalid player recieved from %s\n", curClient->ID);
 		}
 	} else {
 //		fprintf(stderr, "Sleeping for %f milliseconds\n", (maxDelay - curClient->estRTT));
@@ -1359,7 +1378,7 @@ void handlePingResponse(clientInfo *curClient) {
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
 
 	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
-	fprintf(stderr, "Ping recieved: %d, curClient->pingSent: %d\n", curClient->msgID, curClient->pingSent);
+	fprintf(stderr, "Ping recieved from %s: %d, curClient->pingSent: %d\n", curClient->ID, curClient->msgID, curClient->pingSent);
 	curClient->pingRcvd = curClient->msgID;
 	if(curClient->pingRcvd != curClient->pingSent) return;
 
@@ -1385,8 +1404,8 @@ void handlePingResponse(clientInfo *curClient) {
 		}
 	} else {
 		fprintf(stderr, "Ping took too long; ping: %d, timeout: %f \n", delayms, curClient->timeout);
-		curClient->timeout += 100.0; // be a little more lenient!
-		curClient->devRTT += (0.01 * curClient->estRTT);
+		curClient->timeout += (0.02 * curClient->timeout); // be a little more lenient!
+		curClient->devRTT += (0.02 * curClient->estRTT);
 		fprintf(stderr, "Adjusting timeout to %f\n", curClient->timeout);
 		maxDelay = 0;
 

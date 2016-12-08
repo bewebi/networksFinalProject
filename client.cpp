@@ -490,8 +490,8 @@ void readMessage() {
         }
 
         if(headerToRead.type == DRAFT_ROUND_START && draftInProgress) {
-            //memcpy(curPlayer,dataBuffer,50);
             if(headerToRead.msgID == 1) {
+                // First round of the draft so wipe all previous ownership data
                 for(int i = 0; i < playerData.size(); i++) {
                     memset(playerData[i].owner,0,IDLENGTH);
                     strcpy(playerData[i].owner,serv);
@@ -499,6 +499,7 @@ void readMessage() {
             }
 
             while(playerData.size() == 0) {
+                // New user came in at an awkward time and doesn't have data yet
                 fprintf(stdout, "Waiting for player data from server...%s\n");
                 readMessage();
             }
