@@ -3,7 +3,7 @@
 // Tufts University
 
 // This whole section with includes, defines, and struct definitions would
-// ideally be in a seperate header files
+// ideally be in a seperate header file
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
