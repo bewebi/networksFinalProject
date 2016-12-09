@@ -49,6 +49,7 @@ using namespace std;
 #define DRAFT_STARTING 16
 #define DRAFT_ROUND_START 17
 #define DRAFT_ROUND_RESULT 18
+#define BAD_EXIT 19 /* Shawyoun */
 
 struct header {
     unsigned short type;
@@ -59,7 +60,7 @@ struct header {
 }__attribute__((packed, aligned(1)));
 
 struct clientInfo {
-    /* int sock; */
+    int sock; /* reimagined */
     char ID[IDLENGTH];
     bool active;
     int mode;
@@ -141,6 +142,7 @@ void handleCannotDeliver(struct clientInfo *curClient);
 void handleError(struct clientInfo *curClient);
 void handlePlayerRequest(struct clientInfo *curClient);
 void handleDraftRequest(struct clientInfo *curClient);
+void clearOutEntryForReentry(struct clientInfo *curClient); /* Shawyoun */
 
 char currentClientID[IDLENGTH]; /* Shawyoun */
 int currentHeaderToRead; /* Shawyoun */
@@ -285,13 +287,13 @@ void readFromClient () {
 	fprintf(stderr, "Reached readFromClient. currentClientID is %s\n", currentClientID);
 	fprintf(stderr, "Value of foundMatchingClientID before loop: %i\n", foundMatchingClientID);
     for(i = 0; i < MAXCLIENTS; i++) {
-		if(strcmp(currentClientID, "") != 0 && strcmp(clients[i].ID, currentClientID) == 0) {
-			if(clients[i].active) {
+		if(strcmp(currentClientID, "") != 0 && strcmp(clients[i].ID, currentClientID) == 0 && clients[i].sock != -1) { /* reimagined */
+			/*if(clients[i].active) {  Shawyoun */
 			    curClient = &clients[i];
 				foundMatchingClientID = true;
 				fprintf(stderr, "Found matching client id: %s. Client entry i = %i\n", clients[i].ID, i);
 			    break;
-			} else {
+			/*} else { Shawyoun */
 				/* Shawyoun: not sure if this is necessary anymore. We're always looking on the same sock.
 				
 					struct clientInfo newClient;
@@ -308,7 +310,7 @@ void readFromClient () {
 						clientCounter = clientCounter % MAXCLIENTS;
 		     		}
 		    //fprintf(stderr, "New client made with previously existing sockfd: %d\n", sockfd); */
-			}
+			/* Shawyoun } */
 		}
     }
 	
@@ -322,6 +324,7 @@ void readFromClient () {
 		memset(curClient, 0, sizeof(struct clientInfo));
 		curClient->active = true;
 		curClient->validated = false;
+		curClient->sock = 1; /* reimagined */
 		curClient->headerToRead = HEADERSIZE;
 	}
     /* data takes precedence over headers since headerToRead should always 
@@ -371,7 +374,7 @@ void readHeader(struct clientInfo *curClient) {
 		bool foundMatchingClientID = 0;
 		int i;
 		for(i = 0; i < MAXCLIENTS; i++) {
-			if(strcmp(newHeader.sourceID, "") != 0 && strcmp(clients[i].ID, newHeader.sourceID) == 0) {
+			if(strcmp(newHeader.sourceID, "") != 0 && strcmp(clients[i].ID, newHeader.sourceID) == 0 && (clients[i].sock != -1)) { /* reimagined */
 				foundMatchingClientID = true;
 				curClient = &clients[i];
 				fprintf(stderr, "Found matching ID within readHeader method. Client entry i = %i\n", i);
@@ -441,12 +444,12 @@ void readHeader(struct clientInfo *curClient) {
 		    }
 
 
-		    /* handle HELLO-specific bad input */
+		    /*Shawyoun handle HELLO-specific bad input
 	    	if(strcmp(curClient->ID,"") != 0) {
 		    	// If there is already and ID, this is not this client's first interaction with the server
 		    	fprintf(stderr, "ERROR: Attempt to HELLO from previously seen client\n");
 	    		handleError(curClient);
-		    } 
+		    } */
 	    
 		    if(newHeader.msgID !=0) {
 				fprintf(stderr, "ERROR: HELLO has msgID != 0 \n");
@@ -542,7 +545,10 @@ void readHeader(struct clientInfo *curClient) {
 			curClient->active = false;
 			curClient->validated = false;
 		    handleExit(curClient);
-		} else if(newHeader.type == PLAYER_REQUEST) {
+		} else if (newHeader.type == BAD_EXIT){
+			handleExit(curClient); /* Shawyoun exit without resetting variables */
+		}
+		else if(newHeader.type == PLAYER_REQUEST) {
 			//string augCSV = vectorToAugmentedCSV(playerData);
 			handlePlayerRequest(curClient);
 		} else if(newHeader.type == DRAFT_REQUEST) {
@@ -647,14 +653,17 @@ void handleHello(struct clientInfo *curClient) {
 		returning = true;
 		
 		for(int i = 0; i < MAXCLIENTS; i++) {
-			if((strcmp(clients[i].ID, curClient->ID) == 0) && !(proxyFrontEndSock == proxyFrontEndSock)) { /*TODO: this condition must be changed now */
-				fprintf(stderr, "In handleHello, clients[i].ID: %s with sock: %i and curClient->ID: %s with sock: %i\n",
-					clients[i].ID,proxyFrontEndSock,curClient->ID,proxyFrontEndSock);
+			if(strcmp(clients[i].ID, curClient->ID) == 0 && !(clients[i].sock == curClient->sock)) { /* Reimagined : this condition must be changed now */
+				fprintf(stderr, "In handleHello, clients[%i].ID: %s with sock: %i and curClient->ID: %s with sock: %i\n", i,
+					clients[i].ID,clients[i].sock,curClient->ID, curClient->sock);
 				if(strcmp(clients[i].pword, curClient->pword) == 0) {
 					fprintf(stderr, "Password matches password of existing client, removing duplicate\n");
+					curClient->validated = true; /* reimagined */
 					handleError(&clients[i]);
 				} else {
 					fprintf(stderr, "Password does not match existing client! You're fired!\n");
+					curClient->validated = false; /* reimagined */
+					curClient->active = false; /*reimagined */
 					handleError(curClient);
 					return;
 				}
@@ -721,7 +730,7 @@ void handleListRequest(struct clientInfo *curClient) {
 
     /* IDs are added as long as they fit */
     for(i = 0; i < MAXCLIENTS; i++) {
-		if(proxyFrontEndSock != NULL) {
+		if(clients[i].sock != NULL) { /* reimagined */
 		    IDLength = strlen(clients[i].ID);
 		    IDLength++;
 		    //if((IDLength + bufferIndex) < MAXDATASIZE) {
@@ -834,6 +843,60 @@ void handleExit(struct clientInfo *curClient) {
 		FD_CLR(sock, &read_fd_set);
 		FD_CLR(sock, &active_fd_set); */
 		curClient->active = false;
+		curClient->sock = -1; /* Reimagined */
+	} else {
+		if(!curClient->active) fprintf(stderr, "exit: not active\n");
+		if(!curClient->validated) fprintf(stderr, "exit: not validated\n");
+		/* Shawyoun int sock = proxyFrontEndSock;
+		close(sock);
+		FD_CLR(sock, &read_fd_set);
+		FD_CLR(sock, &active_fd_set); */
+		int okToClear = 1; /* Reimagined */
+	    for(int i = 0; i < MAXCLIENTS; i++) {
+	    	/* reimagined if(strcmp(clients[i].ID, "") == 0) break;
+			if(((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)){
+				if(!curClient->validated) {
+					for(int i = 0; i < playerData.size(); i++) {
+						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
+							memset(playerData[i].owner,0,IDLENGTH);
+							strcpy(playerData[i].owner,"Server");
+						}
+					}
+				}
+			    fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,proxyFrontEndSock);
+ 			    memset(curClient, 0, sizeof(struct clientInfo));
+			} reimagined */
+		fprintf(stderr, "Just before long print statement\n");
+		fprintf(stderr, "Comparing curClient %s with sock %i and active %i and validated %i\n against client[%i]: %s with sock %i and active %i and validated %i\n", curClient->ID, curClient->sock, curClient->active, curClient->validated, i, clients[i].ID, clients[i].sock, clients[i].active, clients[i].validated);
+		if(strcmp(curClient->ID, clients[i].ID) == 0 && !(clients[i].active) && clients[i].validated && clients[i].sock == -1){
+			okToClear = 0;
+			fprintf(stderr, "It's NOT okay to clear\n");
+			break;
+		}
+	    } /* reimagined */
+		if(okToClear){
+			for(int i = 0; i < playerData.size(); i++) {
+						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
+							memset(playerData[i].owner,0,IDLENGTH);
+							strcpy(playerData[i].owner,"Server");
+						}
+					}
+		}
+	    	numClients--;
+		fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,proxyFrontEndSock);
+		memset(curClient, 0, sizeof(struct clientInfo)); /* reimagined */
+	}
+	memset(currentClientID, 0, IDLENGTH); /* Shawyoun */
+}
+
+void clearOutEntryForReentry(struct clientInfo *curClient) {
+	if(curClient->active && curClient->validated) {
+		fprintf(stderr, "exit: active and validated\n");
+		/* Shawyoun int sock = proxyFrontEndSock;
+		close(sock);
+		FD_CLR(sock, &read_fd_set);
+		FD_CLR(sock, &active_fd_set); */
+		curClient->active = false;
 		/* Shawyoun proxyFrontEndSock = -1; */
 	} else {
 		if(!curClient->active) fprintf(stderr, "exit: not active\n");
@@ -854,13 +917,13 @@ void handleExit(struct clientInfo *curClient) {
 					}
 				}
 			    fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,proxyFrontEndSock);
-			    memset(curClient, 0, sizeof(curClient));
+			    memset(curClient, 0, sizeof(struct clientInfo)); /* reimagined */
 			}
 	    }
 	    numClients--;
 	}
-	memset(currentClientID, 0, IDLENGTH); /* Shawyoun */
 }
+
 
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
     /* build CLIENT_ALREADY_PRESENT header */
@@ -914,7 +977,9 @@ void handleCannotDeliver(struct clientInfo *curClient) {
 
 void handleError(struct clientInfo *curClient) {
 	/* TODO Shawyoun: I think we have to reset the currentClientID when we get an error */
-	if(proxyFrontEndSock != -1) {
+	if(curClient->sock != -1) { /* Reimagined */
+		curClient->validated = false; /* Reimagined */
+		curClient->active = false; /* Reimagined */
 	    struct header responseHeader;
     	responseHeader.type = htons(ERROR);
 	    strcpy(responseHeader.sourceID, "Server");
@@ -938,6 +1003,7 @@ void handleError(struct clientInfo *curClient) {
 
     handleExit(curClient);
 }
+
 
 void handlePlayerRequest(struct clientInfo *curClient) {
 	//sendPing(curClient);
