@@ -176,7 +176,7 @@ int main(int argc, char *argv[]) {
         sleepTime += (buffer[i-j-1] * pow(10,j));
     }
 
-    fprintf(stdout, "Adding %d ms latency on reads and writes\n", sleepTime);
+    fprintf(stdout, "Adding %d ms latency on reads and writes\n\n", sleepTime);
     sleepTime = sleepTime * 1000; // *1000 for nanoseconds to millisecons
 
     sendHello();
@@ -501,6 +501,7 @@ void readMessage() {
             roundLength = (ROUNDLENGTH_MASK & headerToRead.msgID);
             fprintf(stdout, "%s\n", dataBuffer);
             if(particpatingInDraft) fprintf(stdout, "Each round will last %d seconds. Don't get left behind!\n", roundLength);
+            sendPlayerRequest(true);
         }
 
         if(headerToRead.type == DRAFT_ROUND_START && draftInProgress) {
@@ -512,10 +513,12 @@ void readMessage() {
                 }
             }
 
-            while(playerData.size() == 0) {
-                // New user came in at an awkward time and doesn't have data yet
-                fprintf(stdout, "Waiting for player data from server...%s\n");
-                readMessage();
+            if(playerData.size() == 0) {
+                // Something weird happened, but we'll sort it out now
+                fprintf(stdout, "Waiting for player data from server...you may miss round %d\n", headerToRead.msgID);
+                sendPlayerRequest(true);
+                lastReadWasPing = true;
+                while(lastReadWasPing) readMessage();
             }
 
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
@@ -664,7 +667,7 @@ void sendHello() {
     lastReadWasPing = true;
     while(lastReadWasPing) readMessage();
 
-    sendPlayerRequest(true);
+    // sendPlayerRequest(true); // 
 }
 
 void sendPlayerRequest(bool quiet) {
@@ -719,6 +722,8 @@ void sendStartDraft() {
 
     lastReadWasPing = true;
     while(lastReadWasPing) readMessage();
+
+    if(playerData.size() == 0) sendPlayerRequest(true);
 }
 
 void sendExit() {

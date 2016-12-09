@@ -290,8 +290,8 @@ int main(int argc, char *argv[]) {
 		struct timeval selectTimeout = {timeoutSecs,(timeToEndRound.tv_nsec / 1000)};
 
 		// Cases where we want to send pings sooner rather than later
-		if(startNewRound && !curRoundPingsSent) selectTimeout = {0,1000};
-		if(newEntry) selectTimeout = {1,0};
+		if(startNewRound && !curRoundPingsSent) selectTimeout = {0,1000}; // Just making sure nobody quit
+		if(newEntry && !draftStarted) selectTimeout = {1,0}; // Idea is to get a ping in quickly; reality is if RTT is greater it causes issues
 
 		read_fd_set = active_fd_set;
 
@@ -1365,17 +1365,20 @@ void handleStartDraft(clientInfo *curClient) {
 
 /* A client pinged us back! */
 void handlePingResponse(clientInfo *curClient) {
-	if(curClient->pingRcvd != curClient->pingSent) return; // If pings are out of sync God help us...or just ignore it
+	fprintf(stderr, "Ping recieved from %s: %d, curClient->pingSent: %d\n", curClient->ID, curClient->msgID, curClient->pingSent);
+	curClient->pingRcvd = curClient->msgID;
+
+	if(curClient->pingRcvd != curClient->pingSent) {
+		return; // If pings are out of sync God help us...or just ignore it
+	}
 
 	struct timespec sentTime, curTime;
 	clock_gettime(CLOCK_MONOTONIC,&curTime);
 	memcpy((char *)&sentTime,curClient->partialData,sizeof(sentTime)); // Time ping was sent
 
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
-
 	//fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
-	fprintf(stderr, "Ping recieved from %s: %d, curClient->pingSent: %d\n", curClient->ID, curClient->msgID, curClient->pingSent);
-	curClient->pingRcvd = curClient->msgID;
+
 
 	if(delayms < curClient->timeout) {
 		if(curClient->estRTT == 0) { // First ping!
@@ -1432,7 +1435,7 @@ void sendPing(clientInfo *curClient) {
 
     int bytes, sent, total;
     total = HEADERSIZE; sent = 0;
-    fprintf(stderr, "sendPing: Writing to %s with sock %d\n", curClient->ID,curClient->sock);
+    fprintf(stderr, "sendPing: Writing to %s with sock %d, ping #: %d\n", curClient->ID,curClient->sock,ntohl(responseHeader.msgID));
     do {
 	    clock_gettime(CLOCK_MONOTONIC,&curClient->lastPingSent);
 		bytes = write(curClient->sock, (char *)&responseHeader+sent, total-sent);
