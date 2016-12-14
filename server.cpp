@@ -333,6 +333,7 @@ int main(int argc, char *argv[]) {
 						clientCounter = clientCounter % MAXCLIENTS;
 				    }
 		    		fprintf(stderr, "New connection with newsockfd: %d\n", newsockfd);
+		    		startDraft = false; // Don't want to ambush new client with start of a draft
 
 		    		// fprintf(stderr, "Server: connect from host %s, port %hu. \n", inet_ntoa(cli_addr.sin_addr), ntohs(cli_addr.sin_port));
 
