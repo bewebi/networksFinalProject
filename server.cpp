@@ -329,6 +329,7 @@ int main(int argc, char *argv[]) {
 					 	clientCounter++;
 					 	numClients++;
 					 	numActiveClients++;
+					 	//fprintf(stderr, "332: numActiveClients: %d\n", numActiveClients);
 						clientCounter = clientCounter % MAXCLIENTS;
 				    }
 		    		fprintf(stderr, "New connection with newsockfd: %d\n", newsockfd);
@@ -384,6 +385,7 @@ void readFromClient (int sockfd) {
 			    break;
 			} else {
 				// This is a new user
+				fprintf(stderr, "readFromClient, not active client\n");
 				struct clientInfo newClient;
 				memset(&newClient, 0, sizeof(newClient));
 				newClient.sock = sockfd;
@@ -398,6 +400,7 @@ void readFromClient (int sockfd) {
 				 	}
 					clientCounter++;
 					numActiveClients++;
+					//fprintf(stderr, "403: numActiveClients: %d\n", numActiveClients);
 					clientCounter = clientCounter % MAXCLIENTS;
 		     	}
 		     	break;
@@ -589,6 +592,7 @@ void readHeader(struct clientInfo *curClient, int sockfd) {
 		    /* Client formally exiting, make sure handleExit removes them completely */
 			curClient->active = false;
 			numActiveClients--;
+			//fprintf(stderr, "595: numActiveClients: %d\n", numActiveClients);
 			curClient->validated = false;
 		    handleExit(curClient);
 
@@ -726,6 +730,9 @@ void handleHello(struct clientInfo *curClient) {
 					handleError(&clients[i]); // Remove the old client without removing all trace of the ID which the new client also has
 				} else {
 					//fprintf(stderr, "Password does not match existing client! You're fired!\n");
+					curClient->active = false;
+					numActiveClients--;
+					//fprintf(stderr, "735: numActiveClients: %d\n", numActiveClients);
 					handleError(curClient);
 					return;
 				}
@@ -1035,6 +1042,7 @@ void handleExit(struct clientInfo *curClient) {
 		curClient->active = false;
 		curClient->sock = -1;
 		numActiveClients--;
+		//fprintf(stderr, "1042: numActiveClients: %d\n", numActiveClients);
 		logout = true;
 	} else {
 		// Client either quit permanently or is being booted
@@ -1047,7 +1055,7 @@ void handleExit(struct clientInfo *curClient) {
 	    	//if(curClient->sock == 0) break; // Don't remember what this is about, but it's working so why mess?
 			if((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)) {
 				// Client quit permanently
-				if(!curClient->validated && !draftStarted) {
+				if(actualExit && !curClient->validated && !draftStarted) {
 					// Release client's players to everyone else
 					for(int i = 0; i < playerData.size(); i++) {
 						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
@@ -1056,7 +1064,7 @@ void handleExit(struct clientInfo *curClient) {
 						}
 					}
 				}
-				if(!curClient->validated && draftStarted) {
+				if(actualExit && !curClient->validated && draftStarted) {
 					// Remove client's players from the player pool
 					for(int i = 0; i < playerData.size(); i++) {
 						if(strcmp(curClient->ID,playerData[i].owner) == 0) {
@@ -1073,11 +1081,12 @@ void handleExit(struct clientInfo *curClient) {
 					}
 				}
 			    fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,curClient->sock);
-			    memset(curClient, 0, sizeof(curClient));
+			    memset(curClient, 0, sizeof(clientInfo));
+			    numClients--;
+			    logout = false;
+			    break;
 			}
 	    }
-	    numClients--;
-	    logout = false;
 	}
 
 	// Give everyone else the bad news, also see if the draft is ready now that a client has left
@@ -1137,7 +1146,10 @@ void handleExit(struct clientInfo *curClient) {
 
 // Unecessary holdover from Assignment 2
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
-    handleExit(curClient);
+	curClient->active = false;
+	numActiveClients--;
+	//fprintf(stderr, "1151: numActiveClients: %d\n", numActiveClients);
+    handleError(curClient);
 }
 
 // Relic of Assignment 2

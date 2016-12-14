@@ -410,6 +410,7 @@ void readMessage() {
     // TODO: Make these into seperate methods
     if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
+        connected = false;
         return;
     }
 
