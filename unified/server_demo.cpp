@@ -988,7 +988,6 @@ void handleHello(struct clientInfo *curClient) {
 
 // Relic of Assignment 2 without character limit
 void handleListRequest(struct clientInfo *curClient) {
-	fprintf(stderr, "Reached beginning of handleListRequest\n");
     /* construct IDs buffer */
     char IDBuffer[MAXCLIENTS * (IDLENGTH + 2)];
     memset(IDBuffer, 0, (MAXCLIENTS * (IDLENGTH + 2)));
@@ -1146,7 +1145,7 @@ void handleExitForClient(struct clientInfo *curClient) {
 						}
 					}
 				}
-			    fprintf(stderr,"permanently removing client %s with sockfd %d\n",curClient->ID,curClient->sock);
+			    fprintf(stderr,"Permanently removing clientInfo %s with sockfd %d\n",curClient->ID,curClient->sock);
 			    memset(curClient, 0, sizeof(clientInfo));
 			    numClients--;
 			    logout = false;
@@ -1215,7 +1214,6 @@ void handleExitForClient(struct clientInfo *curClient) {
 void handleClientPresent(struct clientInfo *curClient, char *ID) {
 	curClient->active = false;
 	numActiveClients--;
-	//fprintf(stderr, "1151: numActiveClients: %d\n", numActiveClients);
     handleError(curClient);
 }
 
@@ -1349,7 +1347,7 @@ void handleDraftRequest(clientInfo *curClient) {
 					strcpy(playerData[i].owner,curClient->ID);
 				}
 
-				fprintf(stderr, "The owner of %s is now %s\n",playerData[i].PLAYER_NAME,playerData[i].owner);
+				fprintf(stderr, "The %s has claimed %s\n",playerData[i].PLAYER_NAME,playerData[i].owner);
 			}
 		}
 
@@ -1445,7 +1443,7 @@ void handleStartDraft(clientInfo *curClient) {
 
 /* A client pinged us back! */
 void handlePingResponse(clientInfo *curClient) {
-	fprintf(stderr, "Ping recieved from %s: %d, curClient->pingSent: %d\n", curClient->ID, curClient->msgID, curClient->pingSent);
+	fprintf(stderr, "Ping recieved from %s: %d, curClient->pingSent: %d,", curClient->ID, curClient->msgID, curClient->pingSent);
 	curClient->pingRcvd = curClient->msgID;
 
 	if(curClient->pingRcvd != curClient->pingSent) {
@@ -1457,7 +1455,7 @@ void handlePingResponse(clientInfo *curClient) {
 	memcpy((char *)&sentTime,curClient->partialData,sizeof(sentTime)); // Time ping was sent
 
 	int delayms = ((curTime.tv_sec * 1000) + (curTime.tv_nsec / 1000000)) - ((curClient->lastPingSent.tv_sec * 1000) + (curClient->lastPingSent.tv_nsec / 1000000));
-	fprintf(stderr, "Delay between ping response sent and ping response recieved: %d\n", delayms);
+	fprintf(stderr, " ping delay: %d\n", delayms);
 
 
 	if(delayms < curClient->timeout) {
