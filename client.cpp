@@ -97,6 +97,7 @@ char serv[IDLENGTH] = "Server";
 bool lastReadWasPing = false;
 bool draftInProgress = false;
 bool particpatingInDraft = false;
+bool exiting = false; // Global so error message can trigger exit
 
 bool printMessage = true;
 
@@ -181,7 +182,6 @@ int main(int argc, char *argv[]) {
 
     sendHello();
 
-    bool exiting = false;
 
     while(!exiting) {
         char ch = '\0'; int i = 0; int message = -1;
@@ -411,6 +411,7 @@ void readMessage() {
     if(headerToRead.type == ERROR) {
         fprintf(stderr, "Error recieved, please sign in again\n");
         connected = false;
+        exiting = true;
         return;
     }
 
