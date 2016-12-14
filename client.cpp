@@ -370,7 +370,7 @@ void sendMessage() {
     if(type == LIST_REQUEST || type == PLAYER_REQUEST) {
         // These types want responses ASAP
         lastReadWasPing = true;
-        while(lastReadWasPing) readMessage();
+        while(lastReadWasPing && connected) readMessage();
     }
     if(type == DRAFT_REQUEST) {
         showDrafted(true);
@@ -390,10 +390,11 @@ void readMessage() {
         if(bytes == 0) {
             fprintf(stdout, "Server disconnected!\n");
             connected = false;
-            return;
+            break;
         }
         received+=bytes;
     }
+    if(!connected) return;
 
     struct header headerToRead;
     memcpy((char *)&headerToRead, &headerBuffer[0], sizeof(headerToRead));
@@ -518,7 +519,7 @@ void readMessage() {
                 fprintf(stdout, "Waiting for player data from server...you may miss round %d\n", headerToRead.msgID);
                 sendPlayerRequest(true);
                 lastReadWasPing = true;
-                while(lastReadWasPing) readMessage();
+                while(lastReadWasPing && connected) readMessage();
             }
 
             fprintf(stdout, "Draft round %d:\nPlayer to draft: %s\n", headerToRead.msgID, dataBuffer);
@@ -662,10 +663,10 @@ void sendHello() {
     }
 
     lastReadWasPing = true;
-    while(lastReadWasPing) readMessage();
+    while(lastReadWasPing && connected) readMessage();
 
     lastReadWasPing = true;
-    while(lastReadWasPing) readMessage();
+    while(lastReadWasPing && connected) readMessage();
 
     // sendPlayerRequest(true); // 
 }
@@ -693,7 +694,7 @@ void sendPlayerRequest(bool quiet) {
 
     requestQuietly = quiet;
     lastReadWasPing = true;
-    while(lastReadWasPing) {
+    while(lastReadWasPing && connected) {
         readMessage();
     }
 }
@@ -721,7 +722,7 @@ void sendStartDraft() {
     //fprintf(stderr, "Sent sendStartDraft header\n");
 
     lastReadWasPing = true;
-    while(lastReadWasPing) readMessage();
+    while(lastReadWasPing && connected) readMessage();
 
     if(playerData.size() == 0) sendPlayerRequest(true);
 }
