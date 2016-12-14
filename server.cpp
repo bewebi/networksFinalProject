@@ -726,7 +726,6 @@ void handleHello(struct clientInfo *curClient) {
 					handleError(&clients[i]); // Remove the old client without removing all trace of the ID which the new client also has
 				} else {
 					//fprintf(stderr, "Password does not match existing client! You're fired!\n");
-					//curClient->sock = -1;
 					handleError(curClient);
 					return;
 				}
@@ -1045,7 +1044,7 @@ void handleExit(struct clientInfo *curClient) {
 		FD_CLR(sock, &active_fd_set);
 		if(sock == -1 || !curClient->validated) actualExit = false; // This is a case of duplicate being deleted when the user logs back in
 	    for(int i = 0; i < MAXCLIENTS; i++) {
-	    	if(curClient->sock == 0) break; // Don't remember what this is about, but it's working so why mess?
+	    	//if(curClient->sock == 0) break; // Don't remember what this is about, but it's working so why mess?
 			if((strcmp(curClient->ID,clients[i].ID) == 0) && (!(clients[i].active)) || !(clients[i].validated)) {
 				// Client quit permanently
 				if(!curClient->validated && !draftStarted) {
