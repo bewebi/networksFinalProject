@@ -30,7 +30,7 @@ Run server with: <tt>./server port -p</tt><br>
 Run proxy with:<tt>./proxy_frontend port serverhost serverport</tt><br>
 Run client with:<tt>./client proxyhost proxyport<br>
 
-<h1>Use cases for standard application</h1>
+##Use and test cases for standard application
 Start the server. <br>
 Connect and disconnect clients at will. <br>
 Follow prompt instructions to send messages, view drafted players, start the draft, draft players, etc. <br>
@@ -52,26 +52,25 @@ Some suggestions:
 	<li> Anything else you can think of! (Hopefully we've handled it :P) </li>
 </ul>
 
-##Use cases for secure application:
+##Use and test cases for secure application:
 <ul>
-	<li>Start the server.</li>
-	<li>Start a client pointing to the server. Select any of the options for TLS, then anything but "y" for prompt about trusting self-signed certificates. Observe that the handshake fails because the cert cannot be verified.</li>
+	<li>Start the server in secure mode (-s).</li>
+	<li>Start a secure client pointing to the server. Select any of the options for TLS, then anything but "y" for prompt about trusting self-signed certificates. Observe that the handshake fails because the cert cannot be verified.</li>
 	<li>Run ssldump against the interface of the client or server. Start a client again, using any of the TLS options, and this time type "y" for the prompt about trusting self-signed certs.
-	<li>Observe in ssldump output that the handshake has taken place. Also note the version of TLS used (TLS 1.0 appears as SSL 3.1, 1.1 shows up as 3.2, 1.2 is 3.3) and verify it matches what you requested.
+	<li>Observe in ssldump output that the handshake has taken place. Also note the version of TLS used (TLS 1.0 appears as SSL 3.1, 1.1 shows up as 3.2, 1.2 is 3.3) and verify it matches what you requested. Vary versions for different clients to same server.
 	<li>As you begin using application, confirm that ssldump is showing this as "application data." In unencrypted mode, none of this data would show up in the output.</li>
 	<li>Using packet sniffer like Wireshark, confirm that the data is scrambled. Compare to unencrypted mode, where you can observe the traffic in plaintext.</li>
-	<li> In the logout (not permanent) case, verify in ssldump that a new handshake is done when the client returns. </li>
-	<li>Follow same steps as above for the normal application and verify that behavior is still the same at endpoints. </li>
+	<li>In the logout (not permanent) case, verify in ssldump that a new handshake is done when the client returns. </li>
+	<li>Try connecting to secure client with insecure client, and secure client with insecure server. Verify that the connection eventually fails.
+	<li>Follow same steps as above ("Use cases for normal application") and verify that behavior is still the same at endpoints. </li>
 </ul>
 
-##Use cases for proxy application:
+##Use and test cases for proxy application:
 <ul>
-	<li> Run the proxy_backend, followed by the proxy frontend connecting to it.</li>
-	<li>Run the client and connect to the proxy frontend.</li>
-	<li>Make basic requests like client list and player list. Verify they work as expected. </li>
-	<li>Do a chat and verify it gets to the proper client </li>
-	<li>Do a draft request and verify the data has been updated properly </li>
-	<li>Do an exit and verify the client has been removed </li>
-	<li>Using debugger, determine that only one socket is being used on proxy backend. </li>
-	<li>Watch traffic on the wire and verify that it is all coming from proxy_frontend instead of client or server endpoints.</li>
+	<li>Run the server in proxy mode (-p), then have proxy_frontend connect to it. Run the client and connect it to the proxy frontend. </li>
+	<li>Watch traffic on the wire (Wireshark or tcpdump) and verify that it is all going through proxy_frontend instead of directly between client and server.</li>
+	<li>Run sockets tool "ss -t" to see number of sockets opened up on each host/port combination. Verify that each client has a pair of sockets (read / write) against the proxy_frontend, but there's only pair between the server and proxy_frontend.</li>
+	<li>After connection has been established between proxy_frontend and server, try to connect directly to the server as a client. Verify that the connection is killed (it briefly accepts, then closes immediately). </li>
+	<li>Disconnect from proxy_frontend (CTRL-C or logout) and verify that you have to be authenticated afterwards (server prompts you for password and says "welcome back" with your data if correct.) The server was made aware that you disconnected from the proxy.</li>
+	<li>Follow same steps as above ("Use cases for normal application") and verify that behavior is as expected.</li>
 </ul>
