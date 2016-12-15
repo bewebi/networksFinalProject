@@ -106,7 +106,7 @@ string playerToString(playerInfo player) {
 	if(strcmp(player.owner,"Server") != 0) {
 		s += " >> Drafted by: ";  s+= player.owner;
 	} else {
-		s += " >> UNOWNED";
+		s += " >> UNDRAFTED";
 	}
 
 	return s;
