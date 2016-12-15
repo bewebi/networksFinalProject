@@ -19,7 +19,7 @@ For basic application:<br>
 Run server with: <tt>./server port </tt>
 Run client with: <tt>./client serverhostname serverport</tt><br>
 
-<b>Note: in encrypted versions, make sure the server has a certificate file called "newreq.pem" in same directory as itself. One can be generated with the following command: openssl req -newkey rsa:2048 -new -nodes -x509 -days 3650 -keyout newreq.pem -out newreq.pem</b>
+<b>Note: in encrypted versions, make sure the server has a certificate file called "newreq.pem" in same directory as itself. One can be generated with the following command:</b> <tt>openssl req -newkey rsa:2048 -new -nodes -x509 -days 3650 -keyout newreq.pem -out newreq.pem</tt>
 
 For encrypted application: <br>
 Run encrypted server with: <tt>./server (port) -s</tt>
@@ -31,7 +31,7 @@ Run proxy with:<tt>./proxy_frontend port serverhost serverport</tt><br>
 Run client with:<tt>./client proxyhost proxyport<br>
 
 <h1>Use cases for standard application</h1>
-Run the server. <br>
+Start the server. <br>
 Connect and disconnect clients at will. <br>
 Follow prompt instructions to send messages, view drafted players, start the draft, draft players, etc. <br>
 Some suggestions:
@@ -54,9 +54,14 @@ Some suggestions:
 
 ##Use cases for secure application:
 <ul>
-	<li>Run the server and watch for SSL handshake. </li>
-	<li>Observe traffic on the wire compared to normal application. </li>
-	<li>Follow same steps as normal application and verify that behavior is still the same at endpoints </li>
+	<li>Start the server.</li>
+	<li>Start a client pointing to the server. Select any of the options for TLS, then anything but "y" for prompt about trusting self-signed certificates. Observe that the handshake fails because the cert cannot be verified.</li>
+	<li>Run ssldump against the interface of the client or server. Start a client again, using any of the TLS options, and this time type "y" for the prompt about trusting self-signed certs.
+	<li>Observe in ssldump output that the handshake has taken place. Also note the version of TLS used (TLS 1.0 appears as SSL 3.1, 1.1 shows up as 3.2, 1.2 is 3.3) and verify it matches what you requested.
+	<li>As you begin using application, confirm that ssldump is showing this as "application data." In unencrypted mode, none of this data would show up in the output.</li>
+	<li>Using packet sniffer like Wireshark, confirm that the data is scrambled. Compare to unencrypted mode, where you can observe the traffic in plaintext.</li>
+	<li> In the logout (not permanent) case, verify in ssldump that a new handshake is done when the client returns. </li>
+	<li>Follow same steps as above for the normal application and verify that behavior is still the same at endpoints. </li>
 </ul>
 
 ##Use cases for proxy application:
