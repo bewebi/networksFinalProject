@@ -11,22 +11,20 @@ Compile client as follows: <br>
 Compile proxy as follows: <br>
 <tt>g++ -lssl -lcrypto -std=c++11 player.cpp demo_ssl_utils.cpp proxy_frontend.cpp -o proxy_frontend</tt> <br>
 
-<h2>Running the application:</h2>
+<h2>Running the application</h2>
 
 For basic application:<br>
 Run server with: <tt>./server port </tt>
-Run client with: <tt>./client serverhostname serverport</tt><br><br>
+Run client with: <tt>./client serverhostname serverport</tt><br>
 
 For encrypted application: <br>
-Run encrypted server with:<br>
-<tt>./server (port) -s</tt>
-Run encrypted client with:<br>
-<tt>./secure_client (host) (port) -s</tt> <br> <br>
+Run encrypted server with: <tt>./server (port) -s</tt>
+Run encrypted client with: <tt>./secure_client (host) (port) -s</tt> <br> <br>
 
 For proxy application <b>(in this order)</b>: <br>
 Run server with: <tt>./server port -p</tt><br>
-Run proxy with:<tt>./proxy_frontend port serverhost serverport</tt>
-Run client with:<tt>./client proxyhost proxyport<br><br>
+Run proxy with:<tt>./proxy_frontend port serverhost serverport</tt><br>
+Run client with:<tt>./client proxyhost proxyport<br>
 
 <h1>Use cases for standard application</h1>
 Run the server. <br>
