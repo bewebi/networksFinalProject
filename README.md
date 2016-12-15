@@ -49,6 +49,7 @@ Some suggestions:
 	<li> Use a debugger to verify that the passwords are encrypted </li>
 	<li> Sever the connection between the client and the server to demonstrate the offline abilities of the client </li>
 	<li> Send chat(s) in between draft rounds; observe next round will wait until you are done </li>
+	<li> Attempt login as a client that is already present, or as an absent client using a bad password, and see that the offending client is terminated without affecting anything else<li>
 	<li> Anything else you can think of! (Hopefully we've handled it :P) </li>
 </ul>
 
