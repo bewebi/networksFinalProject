@@ -13,13 +13,17 @@ Compile proxy as follows: <br>
 
 <h2>Running the application</h2>
 
+<b> Note: in all versions, make sure the server has data file "nba1516.csv" in same directory as itself.</b>
+
 For basic application:<br>
 Run server with: <tt>./server port </tt>
 Run client with: <tt>./client serverhostname serverport</tt><br>
 
+<b>Note: in encrypted versions, make sure the server has a certificate file called "newreq.pem" in same directory as itself. One can be generated with the following command: openssl req -newkey rsa:2048 -new -nodes -x509 -days 3650 -keyout newreq.pem -out newreq.pem</b>
+
 For encrypted application: <br>
 Run encrypted server with: <tt>./server (port) -s</tt>
-Run encrypted client with: <tt>./secure_client (host) (port) -s</tt> <br> <br>
+Run encrypted client with: <tt>./client (host) (port) -s</tt> <br> <br>
 
 For proxy application <b>(in this order)</b>: <br>
 Run server with: <tt>./server port -p</tt><br>
