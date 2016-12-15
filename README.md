@@ -43,6 +43,7 @@ Some suggestions:
 	<li> Run clients with different latencies side by side, see that both have the same window for response, receive draft related messages in within the same RTT, and that the quickest reaction is rewarded </li>
 	<li> Have everyone ready to draft except one client and have that client quit </li>
 	<li> Log out during a draft...then log back in, see your team remembered and resume drafting</li>
+	<li> Finish a draft and see results outputted to a distinctly named file</li>
 	<li> Have the slowest client leave and observe increased draft speed...or have a slow client log in and see the opposite </li>
 	<li> Log out and log back in with different latency </li>
 	<li> Use a connection with variable latency and notice the engine adjust over time</li>
